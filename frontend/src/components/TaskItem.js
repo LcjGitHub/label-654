@@ -23,23 +23,29 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories, tags, onAddT
     );
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!editTitle.trim()) return;
-    onUpdate(task.id, {
-      title: editTitle.trim(),
-      description: editDescription.trim(),
-      category_id: editCategoryId ? Number(editCategoryId) : null,
-      priority: editPriority,
-      due_date: editDueDate || null,
-    });
+    try {
+      await onUpdate(task.id, {
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        category_id: editCategoryId ? Number(editCategoryId) : null,
+        priority: editPriority,
+        due_date: editDueDate || null,
+      });
 
-    const currentTagIds = (task.tags || []).map(t => t.id);
-    const tagsToAdd = editTagIds.filter(id => !currentTagIds.includes(id));
-    const tagsToRemove = currentTagIds.filter(id => !editTagIds.includes(id));
+      const currentTagIds = (task.tags || []).map(t => t.id);
+      const tagsToAdd = editTagIds.filter(id => !currentTagIds.includes(id));
+      const tagsToRemove = currentTagIds.filter(id => !editTagIds.includes(id));
 
-    tagsToAdd.forEach(tagId => onAddTagToTask(task.id, tagId));
-    tagsToRemove.forEach(tagId => onRemoveTagFromTask(task.id, tagId));
-
+      for (const tagId of tagsToAdd) {
+        await onAddTagToTask(task.id, tagId);
+      }
+      for (const tagId of tagsToRemove) {
+        await onRemoveTagFromTask(task.id, tagId);
+      }
+    } catch (err) {
+    }
     setIsEditing(false);
   };
 
@@ -177,6 +183,7 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories, tags, onAddT
               setEditCategoryId(task.category_id || '');
               setEditPriority(task.priority || 'medium');
               setEditDueDate(formatForDatetimeLocal(task.due_date));
+              setEditTagIds((task.tags || []).map(t => t.id));
             }}
           >
             取消

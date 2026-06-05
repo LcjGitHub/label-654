@@ -37,8 +37,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
     );
   };
 
-  const handleCreateTag = async (e) => {
-    e.preventDefault();
+  const handleCreateTag = async () => {
     if (!newTagName.trim() || isCreatingTag) return;
 
     setIsCreatingTag(true);
@@ -54,6 +53,14 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
     } catch (err) {
     } finally {
       setIsCreatingTag(false);
+    }
+  };
+
+  const handleCreateTagKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      handleCreateTag();
     }
   };
 
@@ -187,12 +194,13 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
                 + 创建新标签
               </button>
             ) : (
-              <form className="inline-tag-form" onSubmit={handleCreateTag}>
+              <div className="inline-tag-form">
                 <input
                   type="text"
                   placeholder="新标签名称"
                   value={newTagName}
                   onChange={(e) => setNewTagName(e.target.value)}
+                  onKeyDown={handleCreateTagKeyDown}
                   autoFocus
                 />
                 <div className="color-options">
@@ -219,14 +227,15 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
                     取消
                   </button>
                   <button
-                    type="submit"
+                    type="button"
                     className="btn-add-inline"
                     disabled={!newTagName.trim() || isCreatingTag}
+                    onClick={handleCreateTag}
                   >
                     {isCreatingTag ? '创建中...' : '创建'}
                   </button>
                 </div>
-              </form>
+              </div>
             )}
           </div>
 

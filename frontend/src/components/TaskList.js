@@ -53,11 +53,21 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
         completed: categoryFilteredTasks.filter((t) => t.completed).length,
         priorityFilter,
         categoryFilter,
+        tagFilter,
       });
     }
-  }, [categoryFilteredTasks, priorityFilter, categoryFilter, onStatsChange]);
+  }, [categoryFilteredTasks, priorityFilter, categoryFilter, tagFilter, onStatsChange]);
 
   const getEmptyMessage = () => {
+    if (tagFilter && tagFilter !== 'all' && tagFilter !== 'none') {
+      const selectedTag = tags ? tags.find(t => t.id === Number(tagFilter)) : null;
+      return selectedTag
+        ? `标签 "${selectedTag.name}" 下暂无任务`
+        : '该标签下暂无任务';
+    }
+    if (tagFilter === 'none') {
+      return '暂无无标签的任务';
+    }
     if (filter === 'all' && categoryFilter === 'all' && priorityFilter === 'all') {
       return '暂无任务，添加一个吧！';
     }

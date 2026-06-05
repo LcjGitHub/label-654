@@ -227,6 +227,15 @@ function TodoApp() {
       setError(null);
       const newTask = await taskApi.createTask(task);
       setTasks(prevTasks => [newTask, ...prevTasks]);
+      if (task.tag_ids && task.tag_ids.length > 0) {
+        setTags(prevTags =>
+          prevTags.map(t =>
+            task.tag_ids.includes(t.id)
+              ? { ...t, task_count: (t.task_count || 0) + 1 }
+              : t
+          )
+        );
+      }
     } catch (err) {
       setError(err.message);
       throw err;
@@ -246,8 +255,19 @@ function TodoApp() {
   const handleDeleteTask = async (id) => {
     try {
       setError(null);
+      const taskToDelete = tasks.find(t => t.id === id);
+      const taskTagIds = taskToDelete?.tags?.map(t => t.id) || [];
       await taskApi.deleteTask(id);
       setTasks(prevTasks => prevTasks.filter((task) => task.id !== id));
+      if (taskTagIds.length > 0) {
+        setTags(prevTags =>
+          prevTags.map(t =>
+            taskTagIds.includes(t.id)
+              ? { ...t, task_count: Math.max(0, (t.task_count || 0) - 1) }
+              : t
+          )
+        );
+      }
     } catch (err) {
       setError(err.message);
     }
@@ -267,10 +287,25 @@ function TodoApp() {
     try {
       setError(null);
       const completedTasks = tasks.filter((task) => task.completed);
+      const tagIdCounts = {};
+      completedTasks.forEach(task => {
+        (task.tags || []).forEach(tag => {
+          tagIdCounts[tag.id] = (tagIdCounts[tag.id] || 0) + 1;
+        });
+      });
       await Promise.all(
         completedTasks.map((task) => taskApi.deleteTask(task.id))
       );
       setTasks(prevTasks => prevTasks.filter((task) => !task.completed));
+      if (Object.keys(tagIdCounts).length > 0) {
+        setTags(prevTags =>
+          prevTags.map(t =>
+            tagIdCounts[t.id]
+              ? { ...t, task_count: Math.max(0, (t.task_count || 0) - tagIdCounts[t.id]) }
+              : t
+          )
+        );
+      }
     } catch (err) {
       setError(err.message);
     }
@@ -433,19 +468,48 @@ function TodoApp() {
           <p>
             {loading
               ? '正在加载任务列表...'
-              : totalCount === 0
-              ? stats.priorityFilter !== 'all'
-                ? '该优先级下暂无任务'
-                : stats.categoryFilter !== 'all'
-                ? '该分类下暂无任务'
-                : '暂无任务'
-              : activeCount > 0
-              ? `还有 ${activeCount} 个任务待完成`
-              : stats.priorityFilter !== 'all'
-              ? '太棒了！该优先级下所有任务都已完成 🎉'
-              : stats.categoryFilter !== 'all'
-              ? '太棒了！该分类下所有任务都已完成 🎉'
-              : '太棒了！所有任务都已完成 🎉'}
+              : (() => {
+                const selectedTag = (stats.tagFilter && stats.tagFilter !== 'all' && stats.tagFilter !== 'none')
+                  ? tags.find(t => t.id === Number(stats.tagFilter))
+                  : null;
+                if (totalCount === 0) {
+                  if (selectedTag) {
+                    return `标签 "${selectedTag.name}" 下暂无任务`;
+                  }
+                  if (stats.tagFilter === 'none') {
+                    return '暂无无标签的任务';
+                  }
+                  if (stats.priorityFilter !== 'all') {
+                    return '该优先级下暂无任务';
+                  }
+                  if (stats.categoryFilter !== 'all') {
+                    return '该分类下暂无任务';
+                  }
+                  return '暂无任务';
+                }
+                if (activeCount > 0) {
+                  if (selectedTag) {
+                    return `标签 "${selectedTag.name}" 下还有 ${activeCount} 个任务待完成`;
+                  }
+                  if (stats.tagFilter === 'none') {
+                    return `无标签任务中还有 ${activeCount} 个待完成`;
+                  }
+                  return `还有 ${activeCount} 个任务待完成`;
+                }
+                if (selectedTag) {
+                  return `太棒了！标签 "${selectedTag.name}" 下所有任务都已完成 🎉`;
+                }
+                if (stats.tagFilter === 'none') {
+                  return '太棒了！无标签的任务都已完成 🎉';
+                }
+                if (stats.priorityFilter !== 'all') {
+                  return '太棒了！该优先级下所有任务都已完成 🎉';
+                }
+                if (stats.categoryFilter !== 'all') {
+                  return '太棒了！该分类下所有任务都已完成 🎉';
+                }
+                return '太棒了！所有任务都已完成 🎉';
+              })()}
           </p>
         </footer>
       </div>

@@ -680,10 +680,12 @@ def create_tag(current_user_id):
     )
     conn.commit()
     tag_id = cursor.lastrowid
-    cursor.execute('SELECT * FROM tags WHERE id = ?', (tag_id,))
+    cursor.execute('SELECT t.*, 0 as task_count FROM tags t WHERE t.id = ?', (tag_id,))
     tag = cursor.fetchone()
     conn.close()
-    return jsonify(tag_to_dict(tag)), 201
+    tag_dict = tag_to_dict(tag)
+    tag_dict['task_count'] = tag['task_count']
+    return jsonify(tag_dict), 201
 
 @app.route('/api/tags/<int:tag_id>', methods=['PUT'])
 @token_required
@@ -716,10 +718,18 @@ def update_tag(current_user_id, tag_id):
         (name, color, tag_id)
     )
     conn.commit()
-    cursor.execute('SELECT * FROM tags WHERE id = ?', (tag_id,))
+    cursor.execute('''
+        SELECT t.*, COUNT(tt.task_id) as task_count
+        FROM tags t
+        LEFT JOIN task_tags tt ON t.id = tt.tag_id
+        WHERE t.id = ?
+        GROUP BY t.id
+    ''', (tag_id,))
     updated_tag = cursor.fetchone()
     conn.close()
-    return jsonify(tag_to_dict(updated_tag))
+    tag_dict = tag_to_dict(updated_tag)
+    tag_dict['task_count'] = updated_tag['task_count']
+    return jsonify(tag_dict)
 
 @app.route('/api/tags/<int:tag_id>', methods=['DELETE'])
 @token_required
