@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { taskApi } from './services/api';
 import AddTask from './components/AddTask';
 import TaskList from './components/TaskList';
@@ -9,21 +9,34 @@ function App() {
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
-    loadTasks();
+    abortControllerRef.current = new AbortController();
+    
+    loadTasks(abortControllerRef.current.signal);
+
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, []);
 
-  const loadTasks = async () => {
+  const loadTasks = async (signal) => {
     try {
       setLoading(true);
       setError(null);
-      const data = await taskApi.getAllTasks();
-      setTasks(data);
+      const data = await taskApi.getAllTasks(signal);
+      if (!signal?.aborted) {
+        setTasks(data);
+      }
     } catch (err) {
-      setError(err.message);
+      if (err.name !== 'AbortError') {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
   };
 
@@ -70,11 +83,13 @@ function App() {
   const handleClearCompleted = async () => {
     try {
       setError(null);
-      const completedTasks = tasks.filter((task) => task.completed);
-      for (const task of completedTasks) {
-        await taskApi.deleteTask(task.id);
-      }
-      setTasks(tasks.filter((task) => !task.completed));
+      setTasks(prevTasks => {
+        const completedTasks = prevTasks.filter((task) => task.completed);
+        completedTasks.forEach(async (task) => {
+          await taskApi.deleteTask(task.id);
+        });
+        return prevTasks.filter((task) => !task.completed);
+      });
     } catch (err) {
       setError(err.message);
     }
@@ -142,7 +157,9 @@ function App() {
 
         <footer className="app-footer">
           <p>
-            {activeCount > 0
+            {loading
+              ? '正在加载任务列表...'
+              : activeCount > 0
               ? `还有 ${activeCount} 个任务待完成`
               : '太棒了！所有任务都已完成 🎉'}
           </p>

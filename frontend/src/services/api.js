@@ -1,8 +1,8 @@
 const API_BASE_URL = 'http://localhost:5000/api';
 
 export const taskApi = {
-  async getAllTasks() {
-    const response = await fetch(`${API_BASE_URL}/tasks`);
+  async getAllTasks(signal) {
+    const response = await fetch(`${API_BASE_URL}/tasks`, { signal });
     if (!response.ok) throw new Error('获取任务列表失败');
     return response.json();
   },

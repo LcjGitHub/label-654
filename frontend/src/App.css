@@ -249,6 +249,20 @@
 .task-checkbox {
   cursor: pointer;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.task-checkbox input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.task-checkbox input[type="checkbox"]:focus-visible + .checkbox {
+  outline: 2px solid #667eea;
+  outline-offset: 2px;
 }
 
 .checkbox {

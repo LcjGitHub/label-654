@@ -8,6 +8,9 @@ CORS(app)
 
 DATABASE = 'todo.db'
 
+def format_datetime(dt):
+    return dt.strftime('%Y-%m-%d %H:%M:%S')
+
 def get_db():
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
@@ -98,7 +101,7 @@ def update_task(task_id):
     
     cursor.execute(
         'UPDATE tasks SET title = ?, description = ?, completed = ?, updated_at = ? WHERE id = ?',
-        (title, description, completed, datetime.now().isoformat(), task_id)
+        (title, description, completed, format_datetime(datetime.now()), task_id)
     )
     conn.commit()
     cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
@@ -119,7 +122,7 @@ def toggle_task(task_id):
     new_completed = not bool(task['completed'])
     cursor.execute(
         'UPDATE tasks SET completed = ?, updated_at = ? WHERE id = ?',
-        (new_completed, datetime.now().isoformat(), task_id)
+        (new_completed, format_datetime(datetime.now()), task_id)
     )
     conn.commit()
     cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))

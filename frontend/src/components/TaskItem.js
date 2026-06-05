@@ -76,11 +76,17 @@ function TaskItem({ task, onToggle, onDelete, onUpdate }) {
   return (
     <div className={`task-item ${task.completed ? 'completed' : ''}`}>
       <div className="task-header">
-        <div className="task-checkbox" onClick={() => onToggle(task.id)}>
-          <div className={`checkbox ${task.completed ? 'checked' : ''}`}>
+        <label className="task-checkbox">
+          <input
+            type="checkbox"
+            checked={task.completed}
+            onChange={() => onToggle(task.id)}
+            aria-label={`标记任务"${task.title}"为${task.completed ? '未完成' : '已完成'}`}
+          />
+          <span className={`checkbox ${task.completed ? 'checked' : ''}`}>
             {task.completed && <span className="checkmark">✓</span>}
-          </div>
-        </div>
+          </span>
+        </label>
         <div className="task-content" onDoubleClick={() => setIsEditing(true)}>
           <h3 className={task.completed ? 'completed-text' : ''}>{task.title}</h3>
           {task.description && (
