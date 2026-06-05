@@ -4,6 +4,32 @@ function getToken() {
   return localStorage.getItem('token');
 }
 
+function clearAuth() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  window.dispatchEvent(new CustomEvent('auth:logout'));
+}
+
+function handleUnauthorized() {
+  clearAuth();
+  if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+    window.location.href = '/login';
+  }
+}
+
+async function handleResponse(response) {
+  if (response.status === 401) {
+    handleUnauthorized();
+    const error = await response.json();
+    throw new Error(error.error || '未授权，请重新登录');
+  }
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || '请求失败');
+  }
+  return response.json();
+}
+
 function getAuthHeaders() {
   const token = getToken();
   const headers = {
@@ -45,6 +71,25 @@ export const authApi = {
     }
     return response.json();
   },
+
+  async verifyToken() {
+    const token = getToken();
+    if (!token) {
+      return false;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks`, {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      });
+      if (response.status === 401) {
+        return false;
+      }
+      return response.ok;
+    } catch {
+      return false;
+    }
+  },
 };
 
 export const taskApi = {
@@ -53,16 +98,14 @@ export const taskApi = {
       signal,
       headers: getAuthHeaders(),
     });
-    if (!response.ok) throw new Error('获取任务列表失败');
-    return response.json();
+    return handleResponse(response);
   },
 
   async getTask(id) {
     const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
       headers: getAuthHeaders(),
     });
-    if (!response.ok) throw new Error('获取任务失败');
-    return response.json();
+    return handleResponse(response);
   },
 
   async createTask(task) {
@@ -71,8 +114,7 @@ export const taskApi = {
       headers: getAuthHeaders(),
       body: JSON.stringify(task),
     });
-    if (!response.ok) throw new Error('创建任务失败');
-    return response.json();
+    return handleResponse(response);
   },
 
   async updateTask(id, task) {
@@ -81,8 +123,7 @@ export const taskApi = {
       headers: getAuthHeaders(),
       body: JSON.stringify(task),
     });
-    if (!response.ok) throw new Error('更新任务失败');
-    return response.json();
+    return handleResponse(response);
   },
 
   async toggleTask(id) {
@@ -90,8 +131,7 @@ export const taskApi = {
       method: 'PUT',
       headers: getAuthHeaders(),
     });
-    if (!response.ok) throw new Error('切换任务状态失败');
-    return response.json();
+    return handleResponse(response);
   },
 
   async deleteTask(id) {
@@ -99,7 +139,8 @@ export const taskApi = {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
-    if (!response.ok) throw new Error('删除任务失败');
-    return response.json();
+    return handleResponse(response);
   },
 };
+
+export { clearAuth, handleUnauthorized };

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authApi } from '../services/api';
 
 const AuthContext = createContext();
@@ -16,15 +16,42 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const savedToken = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
-    if (savedToken && savedUser) {
-      setToken(savedToken);
-      setUser(JSON.parse(savedUser));
-    }
-    setLoading(false);
+  const clearAuth = useCallback(() => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
   }, []);
+
+  useEffect(() => {
+    const initAuth = async () => {
+      const savedToken = localStorage.getItem('token');
+      const savedUser = localStorage.getItem('user');
+      
+      if (savedToken && savedUser) {
+        const isValid = await authApi.verifyToken();
+        if (isValid) {
+          setToken(savedToken);
+          setUser(JSON.parse(savedUser));
+        } else {
+          clearAuth();
+        }
+      }
+      
+      setLoading(false);
+    };
+
+    initAuth();
+
+    const handleAuthLogout = () => {
+      clearAuth();
+    };
+
+    window.addEventListener('auth:logout', handleAuthLogout);
+    return () => {
+      window.removeEventListener('auth:logout', handleAuthLogout);
+    };
+  }, [clearAuth]);
 
   const login = async (username, password) => {
     const data = await authApi.login(username, password);
@@ -44,12 +71,9 @@ export function AuthProvider({ children }) {
     return data;
   };
 
-  const logout = () => {
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-  };
+  const logout = useCallback(() => {
+    clearAuth();
+  }, [clearAuth]);
 
   const isAuthenticated = !!token && !!user;
 

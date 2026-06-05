@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { taskApi } from './services/api';
 import { useAuth } from './context/AuthContext';
 import AddTask from './components/AddTask';
@@ -16,6 +16,7 @@ function TodoApp() {
   const [error, setError] = useState(null);
   const abortControllerRef = useRef(null);
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     abortControllerRef.current = new AbortController();
@@ -89,13 +90,11 @@ function TodoApp() {
   const handleClearCompleted = async () => {
     try {
       setError(null);
-      setTasks(prevTasks => {
-        const completedTasks = prevTasks.filter((task) => task.completed);
-        completedTasks.forEach(async (task) => {
-          await taskApi.deleteTask(task.id);
-        });
-        return prevTasks.filter((task) => !task.completed);
-      });
+      const completedTasks = tasks.filter((task) => task.completed);
+      await Promise.all(
+        completedTasks.map((task) => taskApi.deleteTask(task.id))
+      );
+      setTasks(prevTasks => prevTasks.filter((task) => !task.completed));
     } catch (err) {
       setError(err.message);
     }
@@ -103,6 +102,7 @@ function TodoApp() {
 
   const handleLogout = () => {
     logout();
+    navigate('/login', { replace: true });
   };
 
   const activeCount = tasks.filter((task) => !task.completed).length;

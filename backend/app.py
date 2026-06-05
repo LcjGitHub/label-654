@@ -55,15 +55,15 @@ def token_required(f):
             token = auth_header.split(' ')[1]
         
         if not token:
-            return jsonify({'error': 'Token is missing'}), 401
+            return jsonify({'error': '令牌缺失'}), 401
         
         try:
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
             current_user_id = data['user_id']
         except jwt.ExpiredSignatureError:
-            return jsonify({'error': 'Token has expired'}), 401
+            return jsonify({'error': '令牌已过期'}), 401
         except jwt.InvalidTokenError:
-            return jsonify({'error': 'Invalid token'}), 401
+            return jsonify({'error': '令牌无效'}), 401
         
         return f(current_user_id, *args, **kwargs)
     return decorated
@@ -89,16 +89,16 @@ def task_to_dict(task):
 def register():
     data = request.get_json()
     if not data or 'username' not in data or 'password' not in data:
-        return jsonify({'error': 'Username and password are required'}), 400
+        return jsonify({'error': '用户名和密码不能为空'}), 400
     
     username = data['username']
     password = data['password']
     
     if len(username) < 3:
-        return jsonify({'error': 'Username must be at least 3 characters'}), 400
+        return jsonify({'error': '用户名至少需要 3 个字符'}), 400
     
     if len(password) < 6:
-        return jsonify({'error': 'Password must be at least 6 characters'}), 400
+        return jsonify({'error': '密码至少需要 6 个字符'}), 400
     
     conn = get_db()
     cursor = conn.cursor()
@@ -107,7 +107,7 @@ def register():
     existing_user = cursor.fetchone()
     if existing_user:
         conn.close()
-        return jsonify({'error': 'Username already exists'}), 400
+        return jsonify({'error': '用户名已存在'}), 400
     
     password_hash = generate_password_hash(password)
     cursor.execute(
@@ -135,7 +135,7 @@ def register():
 def login():
     data = request.get_json()
     if not data or 'username' not in data or 'password' not in data:
-        return jsonify({'error': 'Username and password are required'}), 400
+        return jsonify({'error': '用户名和密码不能为空'}), 400
     
     username = data['username']
     password = data['password']
@@ -147,7 +147,7 @@ def login():
     conn.close()
     
     if not user or not check_password_hash(user['password_hash'], password):
-        return jsonify({'error': 'Invalid username or password'}), 401
+        return jsonify({'error': '用户名或密码错误'}), 401
     
     token = jwt.encode({
         'user_id': user['id'],
@@ -178,7 +178,7 @@ def get_task(current_user_id, task_id):
     task = cursor.fetchone()
     conn.close()
     if task is None:
-        return jsonify({'error': 'Task not found'}), 404
+        return jsonify({'error': '任务不存在'}), 404
     return jsonify(task_to_dict(task))
 
 @app.route('/api/tasks', methods=['POST'])
@@ -186,7 +186,7 @@ def get_task(current_user_id, task_id):
 def create_task(current_user_id):
     data = request.get_json()
     if not data or 'title' not in data:
-        return jsonify({'error': 'Title is required'}), 400
+        return jsonify({'error': '标题不能为空'}), 400
     
     title = data['title']
     description = data.get('description', '')
@@ -266,7 +266,7 @@ def delete_task(current_user_id, task_id):
     cursor.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
     conn.commit()
     conn.close()
-    return jsonify({'message': 'Task deleted successfully'})
+    return jsonify({'message': '任务删除成功'})
 
 if __name__ == '__main__':
     init_db()
