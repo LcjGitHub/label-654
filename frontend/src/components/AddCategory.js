@@ -19,19 +19,26 @@ function AddCategory({ onAdd }) {
   const [name, setName] = useState('');
   const [color, setColor] = useState(PRESET_COLORS[0]);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || isSubmitting) return;
 
-    onAdd({
-      name: name.trim(),
-      color: color,
-    });
+    setIsSubmitting(true);
+    try {
+      await onAdd({
+        name: name.trim(),
+        color: color,
+      });
 
-    setName('');
-    setColor(PRESET_COLORS[0]);
-    setIsExpanded(false);
+      setName('');
+      setColor(PRESET_COLORS[0]);
+      setIsExpanded(false);
+    } catch (err) {
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -83,8 +90,8 @@ function AddCategory({ onAdd }) {
             >
               取消
             </button>
-            <button type="submit" className="btn-add" disabled={!name.trim()}>
-              创建分类
+            <button type="submit" className="btn-add" disabled={!name.trim() || isSubmitting}>
+              {isSubmitting ? '创建中...' : '创建分类'}
             </button>
           </div>
         </form>

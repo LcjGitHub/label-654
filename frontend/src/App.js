@@ -16,7 +16,7 @@ function TodoApp() {
   const [categories, setCategories] = useState([]);
   const [filter, setFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [showCategoryManager, setShowCategoryManager] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const abortControllerRef = useRef(null);
@@ -63,6 +63,7 @@ function TodoApp() {
       setCategories(prevCategories => [...prevCategories, newCategory]);
     } catch (err) {
       setError(err.message);
+      throw err;
     }
   };
 
@@ -112,6 +113,7 @@ function TodoApp() {
       setTasks(prevTasks => [newTask, ...prevTasks]);
     } catch (err) {
       setError(err.message);
+      throw err;
     }
   };
 
@@ -163,8 +165,15 @@ function TodoApp() {
     navigate('/login', { replace: true });
   };
 
-  const activeCount = tasks.filter((task) => !task.completed).length;
-  const completedCount = tasks.filter((task) => task.completed).length;
+  const categoryFilteredTasks = tasks.filter((task) => {
+    if (categoryFilter === 'all') return true;
+    if (categoryFilter === 'none') return !task.category_id;
+    return task.category_id === Number(categoryFilter);
+  });
+
+  const totalCount = categoryFilteredTasks.length;
+  const activeCount = categoryFilteredTasks.filter((task) => !task.completed).length;
+  const completedCount = categoryFilteredTasks.filter((task) => task.completed).length;
 
   return (
     <div className="app">
@@ -219,7 +228,7 @@ function TodoApp() {
               className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
               onClick={() => setFilter('all')}
             >
-              全部 ({tasks.length})
+              全部 ({totalCount})
             </button>
             <button
               className={`filter-btn ${filter === 'active' ? 'active' : ''}`}
@@ -279,9 +288,11 @@ function TodoApp() {
           <p>
             {loading
               ? '正在加载任务列表...'
+              : totalCount === 0
+              ? '该分类下暂无任务'
               : activeCount > 0
               ? `还有 ${activeCount} 个任务待完成`
-              : '太棒了！所有任务都已完成 🎉'}
+              : '太棒了！该分类下所有任务都已完成 🎉'}
           </p>
         </footer>
       </div>

@@ -787,6 +787,20 @@
   margin-bottom: 12px;
 }
 
+.category-empty {
+  text-align: center;
+  padding: 30px 20px;
+  color: #6b7280;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 2px dashed #e5e7eb;
+}
+
+.category-empty p {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
 .category-grid {
   display: flex;
   flex-direction: column;

@@ -25,6 +25,7 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
       setIsEditing(false);
       setEditTitle(task.title);
       setEditDescription(task.description);
+      setEditCategoryId(task.category_id || '');
     }
   };
 

@@ -53,8 +53,21 @@ function CategoryList({ categories, onUpdate, onDelete }) {
     }
   };
 
+  const handleDeleteClick = (categoryId, categoryName) => {
+    if (window.confirm(`确定要删除分类「${categoryName}」吗？该分类下的任务将取消分类关联。`)) {
+      onDelete(categoryId);
+    }
+  };
+
   if (categories.length === 0) {
-    return null;
+    return (
+      <div className="category-list">
+        <h3 className="category-list-title">分类管理</h3>
+        <div className="category-empty">
+          <p>暂无分类，点击上方按钮创建第一个分类吧！</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -112,7 +125,7 @@ function CategoryList({ categories, onUpdate, onDelete }) {
                   </button>
                   <button
                     className="btn-delete"
-                    onClick={() => onDelete(category.id)}
+                    onClick={() => handleDeleteClick(category.id, category.name)}
                   >
                     删除
                   </button>

@@ -5,21 +5,28 @@ function AddTask({ onAdd, categories }) {
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || isSubmitting) return;
     
-    onAdd({
-      title: title.trim(),
-      description: description.trim(),
-      category_id: categoryId ? Number(categoryId) : null,
-    });
-    
-    setTitle('');
-    setDescription('');
-    setCategoryId('');
-    setIsExpanded(false);
+    setIsSubmitting(true);
+    try {
+      await onAdd({
+        title: title.trim(),
+        description: description.trim(),
+        category_id: categoryId ? Number(categoryId) : null,
+      });
+      
+      setTitle('');
+      setDescription('');
+      setCategoryId('');
+      setIsExpanded(false);
+    } catch (err) {
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -74,8 +81,8 @@ function AddTask({ onAdd, categories }) {
             <button type="button" className="btn-cancel" onClick={() => setIsExpanded(false)}>
               取消
             </button>
-            <button type="submit" className="btn-add" disabled={!title.trim()}>
-              添加任务
+            <button type="submit" className="btn-add" disabled={!title.trim() || isSubmitting}>
+              {isSubmitting ? '添加中...' : '添加任务'}
             </button>
           </div>
         </div>

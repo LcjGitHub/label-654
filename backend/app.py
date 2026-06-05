@@ -18,7 +18,23 @@ def format_datetime(dt):
 def get_db():
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA foreign_keys = ON')
     return conn
+
+def migrate_db():
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("PRAGMA table_info(tasks)")
+    columns = [col[1] for col in cursor.fetchall()]
+    
+    if 'category_id' not in columns:
+        cursor.execute('''
+            ALTER TABLE tasks ADD COLUMN category_id INTEGER REFERENCES categories (id) ON DELETE SET NULL
+        ''')
+        conn.commit()
+    
+    conn.close()
 
 def init_db():
     conn = get_db()
@@ -58,6 +74,8 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
+    
+    migrate_db()
 
 def token_required(f):
     @wraps(f)
@@ -276,7 +294,7 @@ def update_task(current_user_id, task_id):
     task = cursor.fetchone()
     if task is None:
         conn.close()
-        return jsonify({'error': 'Task not found'}), 404
+        return jsonify({'error': '任务不存在'}), 404
     
     data = request.get_json()
     title = data.get('title', task['title'])
@@ -316,7 +334,7 @@ def toggle_task(current_user_id, task_id):
     task = cursor.fetchone()
     if task is None:
         conn.close()
-        return jsonify({'error': 'Task not found'}), 404
+        return jsonify({'error': '任务不存在'}), 404
     
     new_completed = not bool(task['completed'])
     cursor.execute(
@@ -344,7 +362,7 @@ def delete_task(current_user_id, task_id):
     task = cursor.fetchone()
     if task is None:
         conn.close()
-        return jsonify({'error': 'Task not found'}), 404
+        return jsonify({'error': '任务不存在'}), 404
     
     cursor.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
     conn.commit()
@@ -453,6 +471,7 @@ def delete_category(current_user_id, category_id):
         conn.close()
         return jsonify({'error': '分类不存在'}), 404
     
+    cursor.execute('UPDATE tasks SET category_id = NULL WHERE category_id = ? AND user_id = ?', (category_id, current_user_id))
     cursor.execute('DELETE FROM categories WHERE id = ?', (category_id,))
     conn.commit()
     conn.close()
