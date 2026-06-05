@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { taskApi, categoryApi } from './services/api';
+import { taskApi, categoryApi, tagApi } from './services/api';
 import { useAuth } from './context/AuthContext';
 import AddTask from './components/AddTask';
 import TaskList from './components/TaskList';
 import AddCategory from './components/AddCategory';
 import CategoryList from './components/CategoryList';
+import AddTag from './components/AddTag';
+import TagList from './components/TagList';
+import TagCloud from './components/TagCloud';
 import Login from './components/Login';
 import Register from './components/Register';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -14,9 +17,12 @@ import './App.css';
 function TodoApp() {
   const [tasks, setTasks] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [tags, setTags] = useState([]);
   const [filter, setFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [showCategoryManager, setShowCategoryManager] = useState(true);
+  const [tagFilter, setTagFilter] = useState(null);
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [showTagManager, setShowTagManager] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [stats, setStats] = useState({ total: 0, active: 0, completed: 0, priorityFilter: 'all', categoryFilter: 'all' });
@@ -38,13 +44,15 @@ function TodoApp() {
     try {
       setLoading(true);
       setError(null);
-      const [tasksData, categoriesData] = await Promise.all([
+      const [tasksData, categoriesData, tagsData] = await Promise.all([
         taskApi.getAllTasks(signal),
         categoryApi.getAllCategories(signal),
+        tagApi.getAllTags(signal),
       ]);
       if (!signal?.aborted) {
         setTasks(tasksData);
         setCategories(categoriesData);
+        setTags(tagsData);
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
@@ -105,6 +113,113 @@ function TodoApp() {
     } catch (err) {
       setError(err.message);
     }
+  };
+
+  const handleAddTag = async (tag) => {
+    try {
+      setError(null);
+      const newTag = await tagApi.createTag(tag);
+      setTags(prevTags => [...prevTags, newTag]);
+      return newTag;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const handleUpdateTag = async (id, tagData) => {
+    try {
+      setError(null);
+      const updatedTag = await tagApi.updateTag(id, tagData);
+      setTags(prevTags =>
+        prevTags.map(tag => (tag.id === id ? updatedTag : tag))
+      );
+      setTasks(prevTasks =>
+        prevTasks.map(task => ({
+          ...task,
+          tags: task.tags?.map(tag =>
+            tag.id === id ? updatedTag : tag
+          )
+        }))
+      );
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleDeleteTag = async (id) => {
+    try {
+      setError(null);
+      await tagApi.deleteTag(id);
+      setTags(prevTags => prevTags.filter(tag => tag.id !== id));
+      setTasks(prevTasks =>
+        prevTasks.map(task => ({
+          ...task,
+          tags: task.tags?.filter(tag => tag.id !== id)
+        }))
+      );
+      if (tagFilter === id) {
+        setTagFilter(null);
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleAddTagToTask = async (taskId, tagId) => {
+    try {
+      setError(null);
+      const updatedTags = await tagApi.addTagToTask(taskId, tagId);
+      setTasks(prevTasks =>
+        prevTasks.map(task =>
+          task.id === taskId
+            ? { ...task, tags: updatedTags }
+            : task
+        )
+      );
+      const tag = tags.find(t => t.id === tagId);
+      if (tag) {
+        setTags(prevTags =>
+          prevTags.map(t =>
+            t.id === tagId
+              ? { ...t, task_count: (t.task_count || 0) + 1 }
+              : t
+          )
+        );
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleRemoveTagFromTask = async (taskId, tagId) => {
+    try {
+      setError(null);
+      const updatedTags = await tagApi.removeTagFromTask(taskId, tagId);
+      setTasks(prevTasks =>
+        prevTasks.map(task =>
+          task.id === taskId
+            ? { ...task, tags: updatedTags }
+            : task
+        )
+      );
+      const tag = tags.find(t => t.id === tagId);
+      if (tag) {
+        setTags(prevTags =>
+          prevTags.map(t =>
+            t.id === tagId
+              ? { ...t, task_count: Math.max(0, (t.task_count || 0) - 1) }
+              : t
+          )
+        );
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleTagFilterClick = (tagId) => {
+    setTagFilter(tagId);
   };
 
   const handleAddTask = async (task) => {
@@ -198,15 +313,22 @@ function TodoApp() {
           </div>
         )}
 
-        <AddTask onAdd={handleAddTask} categories={categories} />
+        <AddTask onAdd={handleAddTask} categories={categories} tags={tags} onCreateTag={handleAddTag} />
 
-        <div className="category-toggle">
+        <div className="manager-toggles">
           <button
             type="button"
             className="category-toggle-btn"
             onClick={() => setShowCategoryManager(!showCategoryManager)}
           >
             {showCategoryManager ? '隐藏分类管理' : '管理分类'}
+          </button>
+          <button
+            type="button"
+            className="tag-toggle-btn"
+            onClick={() => setShowTagManager(!showTagManager)}
+          >
+            {showTagManager ? '隐藏标签管理' : '管理标签'}
           </button>
         </div>
 
@@ -220,6 +342,23 @@ function TodoApp() {
             />
           </div>
         )}
+
+        {showTagManager && (
+          <div className="tag-manager">
+            <AddTag onAdd={handleAddTag} />
+            <TagList
+              tags={tags}
+              onUpdate={handleUpdateTag}
+              onDelete={handleDeleteTag}
+            />
+          </div>
+        )}
+
+        <TagCloud
+          tags={tags}
+          selectedTagId={tagFilter}
+          onTagClick={handleTagFilterClick}
+        />
 
         <div className="filter-section">
           <div className="filter-tabs">
@@ -274,7 +413,11 @@ function TodoApp() {
             filter={filter}
             categoryFilter={categoryFilter}
             categories={categories}
+            tags={tags}
             onStatsChange={handleStatsChange}
+            onAddTagToTask={handleAddTagToTask}
+            onRemoveTagFromTask={handleRemoveTagFromTask}
+            tagFilter={tagFilter}
           />
         )}
 

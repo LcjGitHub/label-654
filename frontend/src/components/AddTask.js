@@ -1,13 +1,61 @@
 import React, { useState } from 'react';
 
-function AddTask({ onAdd, categories }) {
+const PRESET_COLORS = [
+  '#667eea',
+  '#764ba2',
+  '#f093fb',
+  '#f5576c',
+  '#4facfe',
+  '#00f2fe',
+  '#43e97b',
+  '#fa709a',
+  '#fee140',
+  '#30cfd0',
+  '#a8edea',
+  '#ff9a9e',
+];
+
+function AddTask({ onAdd, categories, tags, onCreateTag }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [priority, setPriority] = useState('medium');
   const [dueDate, setDueDate] = useState('');
+  const [selectedTagIds, setSelectedTagIds] = useState([]);
+  const [showNewTagForm, setShowNewTagForm] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagColor, setNewTagColor] = useState(PRESET_COLORS[0]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCreatingTag, setIsCreatingTag] = useState(false);
+
+  const handleTagToggle = (tagId) => {
+    setSelectedTagIds(prev =>
+      prev.includes(tagId)
+        ? prev.filter(id => id !== tagId)
+        : [...prev, tagId]
+    );
+  };
+
+  const handleCreateTag = async (e) => {
+    e.preventDefault();
+    if (!newTagName.trim() || isCreatingTag) return;
+
+    setIsCreatingTag(true);
+    try {
+      const newTag = await onCreateTag({
+        name: newTagName.trim(),
+        color: newTagColor,
+      });
+      setSelectedTagIds(prev => [...prev, newTag.id]);
+      setNewTagName('');
+      setNewTagColor(PRESET_COLORS[0]);
+      setShowNewTagForm(false);
+    } catch (err) {
+    } finally {
+      setIsCreatingTag(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -21,6 +69,7 @@ function AddTask({ onAdd, categories }) {
         category_id: categoryId ? Number(categoryId) : null,
         priority: priority,
         due_date: dueDate || null,
+        tag_ids: selectedTagIds,
       });
       
       setTitle('');
@@ -28,6 +77,7 @@ function AddTask({ onAdd, categories }) {
       setCategoryId('');
       setPriority('medium');
       setDueDate('');
+      setSelectedTagIds([]);
       setIsExpanded(false);
     } catch (err) {
     } finally {
@@ -104,6 +154,82 @@ function AddTask({ onAdd, categories }) {
               </select>
             </div>
           )}
+
+          <div className="task-tags-select">
+            <label>选择标签：</label>
+            {tags.length > 0 && (
+              <div className="tag-checkboxes">
+                {tags.map((tag) => (
+                  <label
+                    key={tag.id}
+                    className={`tag-checkbox ${selectedTagIds.includes(tag.id) ? 'selected' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedTagIds.includes(tag.id)}
+                      onChange={() => handleTagToggle(tag.id)}
+                    />
+                    <span
+                      className="tag-checkbox-dot"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    <span className="tag-checkbox-name">{tag.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {!showNewTagForm ? (
+              <button
+                type="button"
+                className="btn-add-inline-tag"
+                onClick={() => setShowNewTagForm(true)}
+              >
+                + 创建新标签
+              </button>
+            ) : (
+              <form className="inline-tag-form" onSubmit={handleCreateTag}>
+                <input
+                  type="text"
+                  placeholder="新标签名称"
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  autoFocus
+                />
+                <div className="color-options">
+                  {PRESET_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`color-option ${newTagColor === c ? 'selected' : ''}`}
+                      style={{ backgroundColor: c }}
+                      onClick={() => setNewTagColor(c)}
+                    />
+                  ))}
+                </div>
+                <div className="inline-tag-actions">
+                  <button
+                    type="button"
+                    className="btn-cancel-inline"
+                    onClick={() => {
+                      setShowNewTagForm(false);
+                      setNewTagName('');
+                      setNewTagColor(PRESET_COLORS[0]);
+                    }}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-add-inline"
+                    disabled={!newTagName.trim() || isCreatingTag}
+                  >
+                    {isCreatingTag ? '创建中...' : '创建'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+
           <div className="add-task-actions">
             <button type="button" className="btn-cancel" onClick={() => setIsExpanded(false)}>
               取消

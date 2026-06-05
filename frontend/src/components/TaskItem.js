@@ -6,13 +6,22 @@ function formatForDatetimeLocal(dateStr) {
   return normalized.slice(0, 16);
 }
 
-function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
+function TaskItem({ task, onToggle, onDelete, onUpdate, categories, tags, onAddTagToTask, onRemoveTagFromTask }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDescription, setEditDescription] = useState(task.description);
   const [editCategoryId, setEditCategoryId] = useState(task.category_id || '');
   const [editPriority, setEditPriority] = useState(task.priority || 'medium');
   const [editDueDate, setEditDueDate] = useState(formatForDatetimeLocal(task.due_date));
+  const [editTagIds, setEditTagIds] = useState((task.tags || []).map(t => t.id));
+
+  const handleTagToggle = (tagId) => {
+    setEditTagIds(prev =>
+      prev.includes(tagId)
+        ? prev.filter(id => id !== tagId)
+        : [...prev, tagId]
+    );
+  };
 
   const handleSave = () => {
     if (!editTitle.trim()) return;
@@ -23,6 +32,14 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
       priority: editPriority,
       due_date: editDueDate || null,
     });
+
+    const currentTagIds = (task.tags || []).map(t => t.id);
+    const tagsToAdd = editTagIds.filter(id => !currentTagIds.includes(id));
+    const tagsToRemove = currentTagIds.filter(id => !editTagIds.includes(id));
+
+    tagsToAdd.forEach(tagId => onAddTagToTask(task.id, tagId));
+    tagsToRemove.forEach(tagId => onRemoveTagFromTask(task.id, tagId));
+
     setIsEditing(false);
   };
 
@@ -38,6 +55,7 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
       setEditCategoryId(task.category_id || '');
       setEditPriority(task.priority || 'medium');
       setEditDueDate(formatForDatetimeLocal(task.due_date));
+      setEditTagIds((task.tags || []).map(t => t.id));
     }
   };
 
@@ -120,6 +138,32 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
             </select>
           </div>
         )}
+
+        {tags.length > 0 && (
+          <div className="task-tags-select">
+            <label>选择标签：</label>
+            <div className="tag-checkboxes">
+              {tags.map((tag) => (
+                <label
+                  key={tag.id}
+                  className={`tag-checkbox ${editTagIds.includes(tag.id) ? 'selected' : ''}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={editTagIds.includes(tag.id)}
+                    onChange={() => handleTagToggle(tag.id)}
+                  />
+                  <span
+                    className="tag-checkbox-dot"
+                    style={{ backgroundColor: tag.color }}
+                  />
+                  <span className="tag-checkbox-name">{tag.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="edit-actions">
           <button className="btn-save" onClick={handleSave}>
             保存
@@ -169,6 +213,18 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
                 style={{ backgroundColor: task.category.color }}
                 title={task.category.name}
               />
+            )}
+            {task.tags && task.tags.length > 0 && (
+              <span className="task-tag-dots">
+                {task.tags.map((tag) => (
+                  <span
+                    key={tag.id}
+                    className="task-tag-dot"
+                    style={{ backgroundColor: tag.color }}
+                    title={tag.name}
+                  />
+                ))}
+              </span>
             )}
             {task.title}
           </h3>

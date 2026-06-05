@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import TaskItem from './TaskItem';
 
-function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter, categories, onStatsChange }) {
+function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter, categories, tags, onStatsChange, onAddTagToTask, onRemoveTagFromTask, tagFilter }) {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [sortBy, setSortBy] = useState('created_at');
   const priorityOrder = { high: 0, medium: 1, low: 2 };
@@ -10,6 +10,10 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
     if (categoryFilter === 'all') return true;
     if (categoryFilter === 'none') return !task.category_id;
     return task.category_id === Number(categoryFilter);
+  }).filter((task) => {
+    if (tagFilter === 'all' || tagFilter === null) return true;
+    if (tagFilter === 'none') return !task.tags || task.tags.length === 0;
+    return task.tags && task.tags.some(t => t.id === Number(tagFilter));
   }).filter((task) => {
     if (priorityFilter === 'all') return true;
     return task.priority === priorityFilter;
@@ -142,6 +146,9 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
             onDelete={onDelete}
             onUpdate={onUpdate}
             categories={categories}
+            tags={tags}
+            onAddTagToTask={onAddTagToTask}
+            onRemoveTagFromTask={onRemoveTagFromTask}
           />
         ))}
       </div>

@@ -93,10 +93,18 @@ export const authApi = {
 };
 
 export const taskApi = {
-  async getAllTasks(signal, categoryId = null) {
-    const url = categoryId 
-      ? `${API_BASE_URL}/tasks?category_id=${categoryId}` 
-      : `${API_BASE_URL}/tasks`;
+  async getAllTasks(signal, categoryId = null, tagId = null) {
+    let url = `${API_BASE_URL}/tasks`;
+    const params = [];
+    if (categoryId !== null) {
+      params.push(`category_id=${categoryId}`);
+    }
+    if (tagId !== null) {
+      params.push(`tag_id=${tagId}`);
+    }
+    if (params.length > 0) {
+      url += '?' + params.join('&');
+    }
     const response = await fetch(url, {
       signal,
       headers: getAuthHeaders(),
@@ -182,6 +190,66 @@ export const categoryApi = {
 
   async deleteCategory(id) {
     const response = await fetch(`${API_BASE_URL}/categories/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+};
+
+export const tagApi = {
+  async getAllTags(signal) {
+    const response = await fetch(`${API_BASE_URL}/tags`, {
+      signal,
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  async getTag(id) {
+    const response = await fetch(`${API_BASE_URL}/tags/${id}`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  async createTag(tag) {
+    const response = await fetch(`${API_BASE_URL}/tags`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(tag),
+    });
+    return handleResponse(response);
+  },
+
+  async updateTag(id, tag) {
+    const response = await fetch(`${API_BASE_URL}/tags/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(tag),
+    });
+    return handleResponse(response);
+  },
+
+  async deleteTag(id) {
+    const response = await fetch(`${API_BASE_URL}/tags/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  async addTagToTask(taskId, tagId) {
+    const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/tags`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ tag_id: tagId }),
+    });
+    return handleResponse(response);
+  },
+
+  async removeTagFromTask(taskId, tagId) {
+    const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/tags/${tagId}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
