@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 
-function TaskItem({ task, onToggle, onDelete, onUpdate }) {
+function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDescription, setEditDescription] = useState(task.description);
+  const [editCategoryId, setEditCategoryId] = useState(task.category_id || '');
 
   const handleSave = () => {
     if (!editTitle.trim()) return;
     onUpdate(task.id, {
       title: editTitle.trim(),
       description: editDescription.trim(),
+      category_id: editCategoryId ? Number(editCategoryId) : null,
     });
     setIsEditing(false);
   };
@@ -54,6 +56,23 @@ function TaskItem({ task, onToggle, onDelete, onUpdate }) {
           placeholder="添加描述..."
           className="edit-textarea"
         />
+        {categories.length > 0 && (
+          <div className="task-category-select">
+            <label htmlFor={`edit-category-${task.id}`}>选择分类：</label>
+            <select
+              id={`edit-category-${task.id}`}
+              value={editCategoryId}
+              onChange={(e) => setEditCategoryId(e.target.value)}
+            >
+              <option value="">无分类</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="edit-actions">
           <button className="btn-save" onClick={handleSave}>
             保存
@@ -64,6 +83,7 @@ function TaskItem({ task, onToggle, onDelete, onUpdate }) {
               setIsEditing(false);
               setEditTitle(task.title);
               setEditDescription(task.description);
+              setEditCategoryId(task.category_id || '');
             }}
           >
             取消
@@ -88,11 +108,34 @@ function TaskItem({ task, onToggle, onDelete, onUpdate }) {
           </span>
         </label>
         <div className="task-content" onDoubleClick={() => setIsEditing(true)}>
-          <h3 className={task.completed ? 'completed-text' : ''}>{task.title}</h3>
+          <h3 className={task.completed ? 'completed-text' : ''}>
+            {task.category && (
+              <span
+                className="task-category-badge"
+                style={{ backgroundColor: task.category.color }}
+                title={task.category.name}
+              />
+            )}
+            {task.title}
+          </h3>
           {task.description && (
             <p className={task.completed ? 'completed-text' : ''}>{task.description}</p>
           )}
-          <span className="task-date">{formatDate(task.created_at)}</span>
+          <div className="task-meta">
+            <span className="task-date">{formatDate(task.created_at)}</span>
+            {task.category && (
+              <span
+                className="task-category-tag"
+                style={{
+                  backgroundColor: task.category.color + '20',
+                  color: task.category.color,
+                  borderColor: task.category.color,
+                }}
+              >
+                {task.category.name}
+              </span>
+            )}
+          </div>
         </div>
       </div>
       <div className="task-actions">

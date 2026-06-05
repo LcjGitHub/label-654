@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 
-function AddTask({ onAdd }) {
+function AddTask({ onAdd, categories }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [categoryId, setCategoryId] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
 
   const handleSubmit = (e) => {
@@ -12,10 +13,12 @@ function AddTask({ onAdd }) {
     onAdd({
       title: title.trim(),
       description: description.trim(),
+      category_id: categoryId ? Number(categoryId) : null,
     });
     
     setTitle('');
     setDescription('');
+    setCategoryId('');
     setIsExpanded(false);
   };
 
@@ -50,6 +53,23 @@ function AddTask({ onAdd }) {
             onChange={(e) => setDescription(e.target.value)}
             rows="3"
           />
+          {categories.length > 0 && (
+            <div className="task-category-select">
+              <label htmlFor="category">选择分类：</label>
+              <select
+                id="category"
+                value={categoryId}
+                onChange={(e) => setCategoryId(e.target.value)}
+              >
+                <option value="">无分类</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="add-task-actions">
             <button type="button" className="btn-cancel" onClick={() => setIsExpanded(false)}>
               取消

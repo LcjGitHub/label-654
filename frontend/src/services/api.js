@@ -93,8 +93,11 @@ export const authApi = {
 };
 
 export const taskApi = {
-  async getAllTasks(signal) {
-    const response = await fetch(`${API_BASE_URL}/tasks`, {
+  async getAllTasks(signal, categoryId = null) {
+    const url = categoryId 
+      ? `${API_BASE_URL}/tasks?category_id=${categoryId}` 
+      : `${API_BASE_URL}/tasks`;
+    const response = await fetch(url, {
       signal,
       headers: getAuthHeaders(),
     });
@@ -136,6 +139,49 @@ export const taskApi = {
 
   async deleteTask(id) {
     const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+};
+
+export const categoryApi = {
+  async getAllCategories(signal) {
+    const response = await fetch(`${API_BASE_URL}/categories`, {
+      signal,
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  async getCategory(id) {
+    const response = await fetch(`${API_BASE_URL}/categories/${id}`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  async createCategory(category) {
+    const response = await fetch(`${API_BASE_URL}/categories`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(category),
+    });
+    return handleResponse(response);
+  },
+
+  async updateCategory(id, category) {
+    const response = await fetch(`${API_BASE_URL}/categories/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(category),
+    });
+    return handleResponse(response);
+  },
+
+  async deleteCategory(id) {
+    const response = await fetch(`${API_BASE_URL}/categories/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });

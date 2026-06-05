@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { taskApi } from './services/api';
+import { taskApi, categoryApi } from './services/api';
 import { useAuth } from './context/AuthContext';
 import AddTask from './components/AddTask';
 import TaskList from './components/TaskList';
+import AddCategory from './components/AddCategory';
+import CategoryList from './components/CategoryList';
 import Login from './components/Login';
 import Register from './components/Register';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -11,7 +13,10 @@ import './App.css';
 
 function TodoApp() {
   const [tasks, setTasks] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [filter, setFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const abortControllerRef = useRef(null);
@@ -21,20 +26,24 @@ function TodoApp() {
   useEffect(() => {
     abortControllerRef.current = new AbortController();
     
-    loadTasks(abortControllerRef.current.signal);
+    loadData(abortControllerRef.current.signal);
 
     return () => {
       abortControllerRef.current?.abort();
     };
   }, []);
 
-  const loadTasks = async (signal) => {
+  const loadData = async (signal) => {
     try {
       setLoading(true);
       setError(null);
-      const data = await taskApi.getAllTasks(signal);
+      const [tasksData, categoriesData] = await Promise.all([
+        taskApi.getAllTasks(signal),
+        categoryApi.getAllCategories(signal),
+      ]);
       if (!signal?.aborted) {
-        setTasks(data);
+        setTasks(tasksData);
+        setCategories(categoriesData);
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
@@ -44,6 +53,55 @@ function TodoApp() {
       if (!signal?.aborted) {
         setLoading(false);
       }
+    }
+  };
+
+  const handleAddCategory = async (category) => {
+    try {
+      setError(null);
+      const newCategory = await categoryApi.createCategory(category);
+      setCategories(prevCategories => [...prevCategories, newCategory]);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleUpdateCategory = async (id, categoryData) => {
+    try {
+      setError(null);
+      const updatedCategory = await categoryApi.updateCategory(id, categoryData);
+      setCategories(prevCategories =>
+        prevCategories.map(cat => (cat.id === id ? updatedCategory : cat))
+      );
+      setTasks(prevTasks =>
+        prevTasks.map(task =>
+          task.category_id === id
+            ? { ...task, category: updatedCategory }
+            : task
+        )
+      );
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleDeleteCategory = async (id) => {
+    try {
+      setError(null);
+      await categoryApi.deleteCategory(id);
+      setCategories(prevCategories => prevCategories.filter(cat => cat.id !== id));
+      setTasks(prevTasks =>
+        prevTasks.map(task =>
+          task.category_id === id
+            ? { ...task, category_id: null, category: null }
+            : task
+        )
+      );
+      if (categoryFilter === String(id)) {
+        setCategoryFilter('all');
+      }
+    } catch (err) {
+      setError(err.message);
     }
   };
 
@@ -132,27 +190,67 @@ function TodoApp() {
           </div>
         )}
 
-        <AddTask onAdd={handleAddTask} />
+        <AddTask onAdd={handleAddTask} categories={categories} />
 
-        <div className="filter-tabs">
+        <div className="category-toggle">
           <button
-            className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
-            onClick={() => setFilter('all')}
+            type="button"
+            className="category-toggle-btn"
+            onClick={() => setShowCategoryManager(!showCategoryManager)}
           >
-            全部 ({tasks.length})
+            {showCategoryManager ? '隐藏分类管理' : '管理分类'}
           </button>
-          <button
-            className={`filter-btn ${filter === 'active' ? 'active' : ''}`}
-            onClick={() => setFilter('active')}
-          >
-            待完成 ({activeCount})
-          </button>
-          <button
-            className={`filter-btn ${filter === 'completed' ? 'active' : ''}`}
-            onClick={() => setFilter('completed')}
-          >
-            已完成 ({completedCount})
-          </button>
+        </div>
+
+        {showCategoryManager && (
+          <div className="category-manager">
+            <AddCategory onAdd={handleAddCategory} />
+            <CategoryList
+              categories={categories}
+              onUpdate={handleUpdateCategory}
+              onDelete={handleDeleteCategory}
+            />
+          </div>
+        )}
+
+        <div className="filter-section">
+          <div className="filter-tabs">
+            <button
+              className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
+              onClick={() => setFilter('all')}
+            >
+              全部 ({tasks.length})
+            </button>
+            <button
+              className={`filter-btn ${filter === 'active' ? 'active' : ''}`}
+              onClick={() => setFilter('active')}
+            >
+              待完成 ({activeCount})
+            </button>
+            <button
+              className={`filter-btn ${filter === 'completed' ? 'active' : ''}`}
+              onClick={() => setFilter('completed')}
+            >
+              已完成 ({completedCount})
+            </button>
+          </div>
+
+          <div className="category-filter">
+            <label htmlFor="category-filter">分类筛选：</label>
+            <select
+              id="category-filter"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            >
+              <option value="all">全部分类</option>
+              <option value="none">无分类</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {loading ? (
@@ -164,6 +262,8 @@ function TodoApp() {
             onDelete={handleDeleteTask}
             onUpdate={handleUpdateTask}
             filter={filter}
+            categoryFilter={categoryFilter}
+            categories={categories}
           />
         )}
 
