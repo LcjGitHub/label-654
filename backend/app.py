@@ -34,6 +34,18 @@ def migrate_db():
         ''')
         conn.commit()
     
+    if 'priority' not in columns:
+        cursor.execute('''
+            ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'medium'
+        ''')
+        conn.commit()
+    
+    if 'due_date' not in columns:
+        cursor.execute('''
+            ALTER TABLE tasks ADD COLUMN due_date TIMESTAMP
+        ''')
+        conn.commit()
+    
     conn.close()
 
 def init_db():
@@ -65,6 +77,8 @@ def init_db():
             category_id INTEGER,
             title TEXT NOT NULL,
             description TEXT,
+            priority TEXT DEFAULT 'medium',
+            due_date TIMESTAMP,
             completed BOOLEAN DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -120,6 +134,8 @@ def task_to_dict(task, category=None):
         'category_id': task['category_id'],
         'title': task['title'],
         'description': task['description'],
+        'priority': task['priority'],
+        'due_date': task['due_date'],
         'completed': bool(task['completed']),
         'created_at': task['created_at'],
         'updated_at': task['updated_at']
@@ -256,6 +272,11 @@ def create_task(current_user_id):
     title = data['title']
     description = data.get('description', '')
     category_id = data.get('category_id')
+    priority = data.get('priority', 'medium')
+    due_date = data.get('due_date')
+    
+    if priority not in ['high', 'medium', 'low']:
+        priority = 'medium'
     
     if category_id is not None:
         conn = get_db()
@@ -269,8 +290,8 @@ def create_task(current_user_id):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        'INSERT INTO tasks (user_id, category_id, title, description) VALUES (?, ?, ?, ?)',
-        (current_user_id, category_id, title, description)
+        'INSERT INTO tasks (user_id, category_id, title, description, priority, due_date) VALUES (?, ?, ?, ?, ?, ?)',
+        (current_user_id, category_id, title, description, priority, due_date)
     )
     conn.commit()
     task_id = cursor.lastrowid
@@ -301,6 +322,11 @@ def update_task(current_user_id, task_id):
     description = data.get('description', task['description'])
     completed = data.get('completed', task['completed'])
     category_id = data.get('category_id', task['category_id'])
+    priority = data.get('priority', task['priority'])
+    due_date = data.get('due_date', task['due_date'])
+    
+    if priority not in ['high', 'medium', 'low']:
+        priority = task['priority'] or 'medium'
     
     if category_id is not None and category_id != task['category_id']:
         cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (category_id, current_user_id))
@@ -310,8 +336,8 @@ def update_task(current_user_id, task_id):
             return jsonify({'error': '分类不存在'}), 404
     
     cursor.execute(
-        'UPDATE tasks SET title = ?, description = ?, completed = ?, category_id = ?, updated_at = ? WHERE id = ?',
-        (title, description, completed, category_id, format_datetime(datetime.now()), task_id)
+        'UPDATE tasks SET title = ?, description = ?, completed = ?, category_id = ?, priority = ?, due_date = ?, updated_at = ? WHERE id = ?',
+        (title, description, completed, category_id, priority, due_date, format_datetime(datetime.now()), task_id)
     )
     conn.commit()
     cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))

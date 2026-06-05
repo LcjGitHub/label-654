@@ -16,6 +16,8 @@ function TodoApp() {
   const [categories, setCategories] = useState([]);
   const [filter, setFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('created_at');
   const [showCategoryManager, setShowCategoryManager] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -165,15 +167,18 @@ function TodoApp() {
     navigate('/login', { replace: true });
   };
 
-  const categoryFilteredTasks = tasks.filter((task) => {
+  const filteredTasks = tasks.filter((task) => {
     if (categoryFilter === 'all') return true;
     if (categoryFilter === 'none') return !task.category_id;
     return task.category_id === Number(categoryFilter);
+  }).filter((task) => {
+    if (priorityFilter === 'all') return true;
+    return task.priority === priorityFilter;
   });
 
-  const totalCount = categoryFilteredTasks.length;
-  const activeCount = categoryFilteredTasks.filter((task) => !task.completed).length;
-  const completedCount = categoryFilteredTasks.filter((task) => task.completed).length;
+  const totalCount = filteredTasks.length;
+  const activeCount = filteredTasks.filter((task) => !task.completed).length;
+  const completedCount = filteredTasks.filter((task) => task.completed).length;
 
   return (
     <div className="app">
@@ -244,21 +249,51 @@ function TodoApp() {
             </button>
           </div>
 
-          <div className="category-filter">
-            <label htmlFor="category-filter">分类筛选：</label>
-            <select
-              id="category-filter"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-            >
-              <option value="all">全部分类</option>
-              <option value="none">无分类</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
+          <div className="filter-controls">
+            <div className="category-filter">
+              <label htmlFor="category-filter">分类：</label>
+              <select
+                id="category-filter"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <option value="all">全部分类</option>
+                <option value="none">无分类</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="priority-filter">
+              <label htmlFor="priority-filter">优先级：</label>
+              <select
+                id="priority-filter"
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+              >
+                <option value="all">全部优先级</option>
+                <option value="high">🔴 高优先级</option>
+                <option value="medium">🟡 中优先级</option>
+                <option value="low">🟢 低优先级</option>
+              </select>
+            </div>
+
+            <div className="sort-control">
+              <label htmlFor="sort-by">排序：</label>
+              <select
+                id="sort-by"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
+                <option value="created_at">按创建时间</option>
+                <option value="due_date_asc">截止日期（升序）</option>
+                <option value="due_date_desc">截止日期（降序）</option>
+                <option value="priority">按优先级</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -272,6 +307,8 @@ function TodoApp() {
             onUpdate={handleUpdateTask}
             filter={filter}
             categoryFilter={categoryFilter}
+            priorityFilter={priorityFilter}
+            sortBy={sortBy}
             categories={categories}
           />
         )}

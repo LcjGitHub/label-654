@@ -5,6 +5,8 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDescription, setEditDescription] = useState(task.description);
   const [editCategoryId, setEditCategoryId] = useState(task.category_id || '');
+  const [editPriority, setEditPriority] = useState(task.priority || 'medium');
+  const [editDueDate, setEditDueDate] = useState(task.due_date ? task.due_date.slice(0, 16) : '');
 
   const handleSave = () => {
     if (!editTitle.trim()) return;
@@ -12,6 +14,8 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
       title: editTitle.trim(),
       description: editDescription.trim(),
       category_id: editCategoryId ? Number(editCategoryId) : null,
+      priority: editPriority,
+      due_date: editDueDate || null,
     });
     setIsEditing(false);
   };
@@ -26,6 +30,8 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
       setEditTitle(task.title);
       setEditDescription(task.description);
       setEditCategoryId(task.category_id || '');
+      setEditPriority(task.priority || 'medium');
+      setEditDueDate(task.due_date ? task.due_date.slice(0, 16) : '');
     }
   };
 
@@ -37,6 +43,19 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const isOverdue = () => {
+    if (!task.due_date || task.completed) return false;
+    return new Date(task.due_date) < new Date();
+  };
+
+  const getPriorityLabel = (priority) => {
+    switch (priority) {
+      case 'high': return '高';
+      case 'low': return '低';
+      default: return '中';
+    }
   };
 
   if (isEditing) {
@@ -57,6 +76,27 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
           placeholder="添加描述..."
           className="edit-textarea"
         />
+        <div className="task-priority-select">
+          <label htmlFor={`edit-priority-${task.id}`}>优先级：</label>
+          <select
+            id={`edit-priority-${task.id}`}
+            value={editPriority}
+            onChange={(e) => setEditPriority(e.target.value)}
+          >
+            <option value="high">🔴 高优先级</option>
+            <option value="medium">🟡 中优先级</option>
+            <option value="low">🟢 低优先级</option>
+          </select>
+        </div>
+        <div className="task-due-date">
+          <label htmlFor={`edit-due-date-${task.id}`}>截止日期：</label>
+          <input
+            type="datetime-local"
+            id={`edit-due-date-${task.id}`}
+            value={editDueDate}
+            onChange={(e) => setEditDueDate(e.target.value)}
+          />
+        </div>
         {categories.length > 0 && (
           <div className="task-category-select">
             <label htmlFor={`edit-category-${task.id}`}>选择分类：</label>
@@ -85,6 +125,8 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
               setEditTitle(task.title);
               setEditDescription(task.description);
               setEditCategoryId(task.category_id || '');
+              setEditPriority(task.priority || 'medium');
+              setEditDueDate(task.due_date ? task.due_date.slice(0, 16) : '');
             }}
           >
             取消
@@ -94,8 +136,10 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
     );
   }
 
+  const overdue = isOverdue();
+
   return (
-    <div className={`task-item ${task.completed ? 'completed' : ''}`}>
+    <div className={`task-item ${task.completed ? 'completed' : ''} ${overdue ? 'overdue' : ''}`}>
       <div className="task-header">
         <label className="task-checkbox">
           <input
@@ -110,6 +154,9 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
         </label>
         <div className="task-content" onDoubleClick={() => setIsEditing(true)}>
           <h3 className={task.completed ? 'completed-text' : ''}>
+            <span className={`task-priority-badge priority-${task.priority || 'medium'}`}>
+              {getPriorityLabel(task.priority)}
+            </span>
             {task.category && (
               <span
                 className="task-category-badge"
@@ -124,6 +171,12 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
           )}
           <div className="task-meta">
             <span className="task-date">{formatDate(task.created_at)}</span>
+            {task.due_date && (
+              <span className={`task-due-date-tag ${overdue ? 'overdue' : ''}`}>
+                📅 {formatDate(task.due_date)}
+                {overdue && ' (已过期)'}
+              </span>
+            )}
             {task.category && (
               <span
                 className="task-category-tag"

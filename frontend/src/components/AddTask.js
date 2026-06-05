@@ -4,6 +4,8 @@ function AddTask({ onAdd, categories }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [priority, setPriority] = useState('medium');
+  const [dueDate, setDueDate] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -17,11 +19,15 @@ function AddTask({ onAdd, categories }) {
         title: title.trim(),
         description: description.trim(),
         category_id: categoryId ? Number(categoryId) : null,
+        priority: priority,
+        due_date: dueDate || null,
       });
       
       setTitle('');
       setDescription('');
       setCategoryId('');
+      setPriority('medium');
+      setDueDate('');
       setIsExpanded(false);
     } catch (err) {
     } finally {
@@ -60,6 +66,27 @@ function AddTask({ onAdd, categories }) {
             onChange={(e) => setDescription(e.target.value)}
             rows="3"
           />
+          <div className="task-priority-select">
+            <label htmlFor="priority">优先级：</label>
+            <select
+              id="priority"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+            >
+              <option value="high">🔴 高优先级</option>
+              <option value="medium">🟡 中优先级</option>
+              <option value="low">🟢 低优先级</option>
+            </select>
+          </div>
+          <div className="task-due-date">
+            <label htmlFor="due-date">截止日期：</label>
+            <input
+              type="datetime-local"
+              id="due-date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
+          </div>
           {categories.length > 0 && (
             <div className="task-category-select">
               <label htmlFor="category">选择分类：</label>
