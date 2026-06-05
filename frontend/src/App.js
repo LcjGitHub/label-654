@@ -1,15 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { taskApi } from './services/api';
+import { useAuth } from './context/AuthContext';
 import AddTask from './components/AddTask';
 import TaskList from './components/TaskList';
+import Login from './components/Login';
+import Register from './components/Register';
+import ProtectedRoute from './components/ProtectedRoute';
 import './App.css';
 
-function App() {
+function TodoApp() {
   const [tasks, setTasks] = useState([]);
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const abortControllerRef = useRef(null);
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     abortControllerRef.current = new AbortController();
@@ -95,6 +101,10 @@ function App() {
     }
   };
 
+  const handleLogout = () => {
+    logout();
+  };
+
   const activeCount = tasks.filter((task) => !task.completed).length;
   const completedCount = tasks.filter((task) => task.completed).length;
 
@@ -102,8 +112,18 @@ function App() {
     <div className="app">
       <div className="container">
         <header className="app-header">
-          <h1>📝 待办事项</h1>
-          <p className="subtitle">高效管理你的日常任务</p>
+          <div className="header-top">
+            <div className="header-title">
+              <h1>📝 待办事项</h1>
+              <p className="subtitle">高效管理你的日常任务</p>
+            </div>
+            <div className="user-info">
+              <span className="username">👤 {user?.username}</span>
+              <button className="btn-logout" onClick={handleLogout}>
+                退出登录
+              </button>
+            </div>
+          </div>
         </header>
 
         {error && (
@@ -166,6 +186,26 @@ function App() {
         </footer>
       </div>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <TodoApp />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Router>
   );
 }
 
