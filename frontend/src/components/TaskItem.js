@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 
+function formatForDatetimeLocal(dateStr) {
+  if (!dateStr) return '';
+  const normalized = dateStr.replace(' ', 'T');
+  return normalized.slice(0, 16);
+}
+
 function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDescription, setEditDescription] = useState(task.description);
   const [editCategoryId, setEditCategoryId] = useState(task.category_id || '');
   const [editPriority, setEditPriority] = useState(task.priority || 'medium');
-  const [editDueDate, setEditDueDate] = useState(task.due_date ? task.due_date.slice(0, 16) : '');
+  const [editDueDate, setEditDueDate] = useState(formatForDatetimeLocal(task.due_date));
 
   const handleSave = () => {
     if (!editTitle.trim()) return;
@@ -31,7 +37,7 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
       setEditDescription(task.description);
       setEditCategoryId(task.category_id || '');
       setEditPriority(task.priority || 'medium');
-      setEditDueDate(task.due_date ? task.due_date.slice(0, 16) : '');
+      setEditDueDate(formatForDatetimeLocal(task.due_date));
     }
   };
 
@@ -126,7 +132,7 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories }) {
               setEditDescription(task.description);
               setEditCategoryId(task.category_id || '');
               setEditPriority(task.priority || 'medium');
-              setEditDueDate(task.due_date ? task.due_date.slice(0, 16) : '');
+              setEditDueDate(formatForDatetimeLocal(task.due_date));
             }}
           >
             取消

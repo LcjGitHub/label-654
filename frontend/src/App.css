@@ -1163,3 +1163,72 @@
     min-width: unset;
   }
 }
+
+.task-list-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.list-filter-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: white;
+  padding: 12px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.list-filter-controls .priority-filter,
+.list-filter-controls .sort-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f9fafb;
+  padding: 8px 12px;
+  border-radius: 8px;
+  flex: 1;
+  min-width: 180px;
+  backdrop-filter: none;
+}
+
+.list-filter-controls .priority-filter label,
+.list-filter-controls .sort-control label {
+  color: #374151;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.list-filter-controls .priority-filter select,
+.list-filter-controls .sort-control select {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: white;
+  color: #1f2937;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.2s ease;
+}
+
+.list-filter-controls .priority-filter select:focus,
+.list-filter-controls .sort-control select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+@media (max-width: 480px) {
+  .list-filter-controls {
+    flex-direction: column;
+  }
+
+  .list-filter-controls .priority-filter,
+  .list-filter-controls .sort-control {
+    width: 100%;
+    min-width: unset;
+  }
+}

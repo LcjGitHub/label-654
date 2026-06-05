@@ -1,14 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import TaskItem from './TaskItem';
 
-function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter, priorityFilter, sortBy, categories }) {
+function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter, categories, onStatsChange }) {
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('created_at');
   const priorityOrder = { high: 0, medium: 1, low: 2 };
 
-  let filteredTasks = tasks.filter((task) => {
-    if (filter === 'active') return !task.completed;
-    if (filter === 'completed') return task.completed;
-    return true;
-  }).filter((task) => {
+  const categoryFilteredTasks = tasks.filter((task) => {
     if (categoryFilter === 'all') return true;
     if (categoryFilter === 'none') return !task.category_id;
     return task.category_id === Number(categoryFilter);
@@ -17,7 +15,13 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
     return task.priority === priorityFilter;
   });
 
-  const sortedTasks = [...filteredTasks].sort((a, b) => {
+  const statusFilteredTasks = categoryFilteredTasks.filter((task) => {
+    if (filter === 'active') return !task.completed;
+    if (filter === 'completed') return task.completed;
+    return true;
+  });
+
+  const sortedTasks = [...statusFilteredTasks].sort((a, b) => {
     switch (sortBy) {
       case 'due_date_asc':
         if (!a.due_date && !b.due_date) return 0;
@@ -37,35 +41,110 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
     }
   });
 
+  useEffect(() => {
+    if (onStatsChange) {
+      onStatsChange({
+        total: categoryFilteredTasks.length,
+        active: categoryFilteredTasks.filter((t) => !t.completed).length,
+        completed: categoryFilteredTasks.filter((t) => t.completed).length,
+        priorityFilter,
+        categoryFilter,
+      });
+    }
+  }, [categoryFilteredTasks, priorityFilter, categoryFilter, onStatsChange]);
+
+  const getEmptyMessage = () => {
+    if (filter === 'all' && categoryFilter === 'all' && priorityFilter === 'all') {
+      return '暂无任务，添加一个吧！';
+    }
+    if (filter === 'active') return '没有待完成的任务';
+    if (filter === 'completed') return '没有已完成的任务';
+    return '没有符合条件的任务';
+  };
+
   if (sortedTasks.length === 0) {
     return (
-      <div className="empty-state">
-        <div className="empty-icon">📋</div>
-        <p>
-          {filter === 'all' && categoryFilter === 'all' && priorityFilter === 'all'
-            ? '暂无任务，添加一个吧！'
-            : filter === 'active'
-            ? '没有待完成的任务'
-            : filter === 'completed'
-            ? '没有已完成的任务'
-            : '没有符合条件的任务'}
-        </p>
+      <div className="task-list-section">
+        <div className="list-filter-controls">
+          <div className="priority-filter">
+            <label htmlFor="priority-filter">优先级：</label>
+            <select
+              id="priority-filter"
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
+            >
+              <option value="all">全部优先级</option>
+              <option value="high">🔴 高优先级</option>
+              <option value="medium">🟡 中优先级</option>
+              <option value="low">🟢 低优先级</option>
+            </select>
+          </div>
+
+          <div className="sort-control">
+            <label htmlFor="sort-by">排序：</label>
+            <select
+              id="sort-by"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="created_at">按创建时间</option>
+              <option value="due_date_asc">截止日期（升序）</option>
+              <option value="due_date_desc">截止日期（降序）</option>
+              <option value="priority">按优先级</option>
+            </select>
+          </div>
+        </div>
+        <div className="empty-state">
+          <div className="empty-icon">📋</div>
+          <p>{getEmptyMessage()}</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="task-list">
-      {sortedTasks.map((task) => (
-        <TaskItem
-          key={task.id}
-          task={task}
-          onToggle={onToggle}
-          onDelete={onDelete}
-          onUpdate={onUpdate}
-          categories={categories}
-        />
-      ))}
+    <div className="task-list-section">
+      <div className="list-filter-controls">
+        <div className="priority-filter">
+          <label htmlFor="priority-filter">优先级：</label>
+          <select
+            id="priority-filter"
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+          >
+            <option value="all">全部优先级</option>
+            <option value="high">🔴 高优先级</option>
+            <option value="medium">🟡 中优先级</option>
+            <option value="low">🟢 低优先级</option>
+          </select>
+        </div>
+
+        <div className="sort-control">
+          <label htmlFor="sort-by">排序：</label>
+          <select
+            id="sort-by"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+          >
+            <option value="created_at">按创建时间</option>
+            <option value="due_date_asc">截止日期（升序）</option>
+            <option value="due_date_desc">截止日期（降序）</option>
+            <option value="priority">按优先级</option>
+          </select>
+        </div>
+      </div>
+      <div className="task-list">
+        {sortedTasks.map((task) => (
+          <TaskItem
+            key={task.id}
+            task={task}
+            onToggle={onToggle}
+            onDelete={onDelete}
+            onUpdate={onUpdate}
+            categories={categories}
+          />
+        ))}
+      </div>
     </div>
   );
 }

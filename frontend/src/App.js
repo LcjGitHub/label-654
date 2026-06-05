@@ -16,11 +16,10 @@ function TodoApp() {
   const [categories, setCategories] = useState([]);
   const [filter, setFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [priorityFilter, setPriorityFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('created_at');
   const [showCategoryManager, setShowCategoryManager] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [stats, setStats] = useState({ total: 0, active: 0, completed: 0, priorityFilter: 'all', categoryFilter: 'all' });
   const abortControllerRef = useRef(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -167,18 +166,13 @@ function TodoApp() {
     navigate('/login', { replace: true });
   };
 
-  const filteredTasks = tasks.filter((task) => {
-    if (categoryFilter === 'all') return true;
-    if (categoryFilter === 'none') return !task.category_id;
-    return task.category_id === Number(categoryFilter);
-  }).filter((task) => {
-    if (priorityFilter === 'all') return true;
-    return task.priority === priorityFilter;
-  });
+  const handleStatsChange = (newStats) => {
+    setStats(newStats);
+  };
 
-  const totalCount = filteredTasks.length;
-  const activeCount = filteredTasks.filter((task) => !task.completed).length;
-  const completedCount = filteredTasks.filter((task) => task.completed).length;
+  const totalCount = stats.total;
+  const activeCount = stats.active;
+  const completedCount = stats.completed;
 
   return (
     <div className="app">
@@ -266,34 +260,6 @@ function TodoApp() {
                 ))}
               </select>
             </div>
-
-            <div className="priority-filter">
-              <label htmlFor="priority-filter">优先级：</label>
-              <select
-                id="priority-filter"
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value)}
-              >
-                <option value="all">全部优先级</option>
-                <option value="high">🔴 高优先级</option>
-                <option value="medium">🟡 中优先级</option>
-                <option value="low">🟢 低优先级</option>
-              </select>
-            </div>
-
-            <div className="sort-control">
-              <label htmlFor="sort-by">排序：</label>
-              <select
-                id="sort-by"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-              >
-                <option value="created_at">按创建时间</option>
-                <option value="due_date_asc">截止日期（升序）</option>
-                <option value="due_date_desc">截止日期（降序）</option>
-                <option value="priority">按优先级</option>
-              </select>
-            </div>
           </div>
         </div>
 
@@ -307,9 +273,8 @@ function TodoApp() {
             onUpdate={handleUpdateTask}
             filter={filter}
             categoryFilter={categoryFilter}
-            priorityFilter={priorityFilter}
-            sortBy={sortBy}
             categories={categories}
+            onStatsChange={handleStatsChange}
           />
         )}
 
@@ -326,10 +291,18 @@ function TodoApp() {
             {loading
               ? '正在加载任务列表...'
               : totalCount === 0
-              ? '该分类下暂无任务'
+              ? stats.priorityFilter !== 'all'
+                ? '该优先级下暂无任务'
+                : stats.categoryFilter !== 'all'
+                ? '该分类下暂无任务'
+                : '暂无任务'
               : activeCount > 0
               ? `还有 ${activeCount} 个任务待完成`
-              : '太棒了！该分类下所有任务都已完成 🎉'}
+              : stats.priorityFilter !== 'all'
+              ? '太棒了！该优先级下所有任务都已完成 🎉'
+              : stats.categoryFilter !== 'all'
+              ? '太棒了！该分类下所有任务都已完成 🎉'
+              : '太棒了！所有任务都已完成 🎉'}
           </p>
         </footer>
       </div>
