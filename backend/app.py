@@ -5,6 +5,9 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
+import calendar
+
+VALID_REPEAT_PATTERNS = ['none', 'daily', 'weekly', 'monthly', 'yearly']
 
 app = Flask(__name__)
 CORS(app)
@@ -30,6 +33,48 @@ def format_due_date(date_str):
             return dt.strftime('%Y-%m-%d %H:%M:%S')
         except (ValueError, TypeError):
             return None
+
+def parse_datetime(dt_str):
+    if not dt_str:
+        return None
+    try:
+        return datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S')
+    except (ValueError, TypeError):
+        return None
+
+def calculate_next_repeat_date(current_date_str, repeat_pattern):
+    if not repeat_pattern or repeat_pattern == 'none':
+        return None
+    current_dt = parse_datetime(current_date_str)
+    if current_dt is None:
+        current_dt = datetime.now()
+    if repeat_pattern == 'daily':
+        next_dt = current_dt + timedelta(days=1)
+    elif repeat_pattern == 'weekly':
+        next_dt = current_dt + timedelta(weeks=1)
+    elif repeat_pattern == 'monthly':
+        year = current_dt.year
+        month = current_dt.month + 1
+        if month > 12:
+            month = 1
+            year += 1
+        day = min(current_dt.day, calendar.monthrange(year, month)[1])
+        next_dt = current_dt.replace(year=year, month=month, day=day)
+    elif repeat_pattern == 'yearly':
+        try:
+            next_dt = current_dt.replace(year=current_dt.year + 1)
+        except ValueError:
+            next_dt = current_dt.replace(year=current_dt.year + 1, day=28)
+    else:
+        return None
+    return format_datetime(next_dt)
+
+def validate_repeat_pattern(pattern):
+    if pattern is None or pattern == '':
+        return 'none'
+    if pattern in VALID_REPEAT_PATTERNS:
+        return pattern
+    return 'none'
 
 def get_db():
     conn = sqlite3.connect(DATABASE)
@@ -68,6 +113,18 @@ def migrate_db():
         ''')
         conn.commit()
     
+    if 'repeat_pattern' not in columns:
+        cursor.execute('''
+            ALTER TABLE tasks ADD COLUMN repeat_pattern TEXT DEFAULT 'none'
+        ''')
+        conn.commit()
+    
+    if 'repeat_parent_id' not in columns:
+        cursor.execute('''
+            ALTER TABLE tasks ADD COLUMN repeat_parent_id INTEGER REFERENCES tasks (id) ON DELETE SET NULL
+        ''')
+        conn.commit()
+    
     conn.close()
 
 def init_db():
@@ -103,10 +160,13 @@ def init_db():
             due_date TIMESTAMP,
             completed BOOLEAN DEFAULT 0,
             is_pinned BOOLEAN DEFAULT 0,
+            repeat_pattern TEXT DEFAULT 'none',
+            repeat_parent_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-            FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE SET NULL
+            FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE SET NULL,
+            FOREIGN KEY (repeat_parent_id) REFERENCES tasks (id) ON DELETE SET NULL
         )
     ''')
     cursor.execute('''
@@ -190,6 +250,8 @@ def task_to_dict(task, category=None, tags=None):
         'due_date': task['due_date'],
         'completed': bool(task['completed']),
         'is_pinned': bool(task['is_pinned']),
+        'repeat_pattern': task['repeat_pattern'] or 'none',
+        'repeat_parent_id': task['repeat_parent_id'],
         'created_at': task['created_at'],
         'updated_at': task['updated_at']
     }
@@ -384,6 +446,37 @@ def get_task(current_user_id, task_id):
     conn.close()
     return jsonify(task_to_dict(task, category, tags))
 
+def create_next_repeat_task(cursor, original_task, current_user_id):
+    if not original_task['repeat_pattern'] or original_task['repeat_pattern'] == 'none':
+        return None
+    next_due_date = calculate_next_repeat_date(original_task['due_date'], original_task['repeat_pattern'])
+    cursor.execute(
+        'INSERT INTO tasks (user_id, category_id, title, description, priority, due_date, is_pinned, repeat_pattern, repeat_parent_id, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)',
+        (
+            current_user_id,
+            original_task['category_id'],
+            original_task['title'],
+            original_task['description'],
+            original_task['priority'],
+            next_due_date,
+            original_task['is_pinned'],
+            original_task['repeat_pattern'],
+            original_task['id'],
+        )
+    )
+    new_task_id = cursor.lastrowid
+    cursor.execute('''
+        SELECT tag_id FROM task_tags WHERE task_id = ?
+    ''', (original_task['id'],))
+    tag_rows = cursor.fetchall()
+    for tag_row in tag_rows:
+        cursor.execute(
+            'INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?, ?)',
+            (new_task_id, tag_row['tag_id'])
+        )
+    cursor.execute('SELECT * FROM tasks WHERE id = ?', (new_task_id,))
+    return cursor.fetchone()
+
 @app.route('/api/tasks', methods=['POST'])
 @token_required
 def create_task(current_user_id):
@@ -397,6 +490,7 @@ def create_task(current_user_id):
     priority = data.get('priority', 'medium')
     due_date = format_due_date(data.get('due_date'))
     is_pinned = data.get('is_pinned', False)
+    repeat_pattern = validate_repeat_pattern(data.get('repeat_pattern', 'none'))
     tag_ids = data.get('tag_ids', [])
     
     if priority not in ['high', 'medium', 'low']:
@@ -422,8 +516,8 @@ def create_task(current_user_id):
             return jsonify({'error': f'标签 ID {tag_id} 不存在'}), 404
     
     cursor.execute(
-        'INSERT INTO tasks (user_id, category_id, title, description, priority, due_date, is_pinned) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        (current_user_id, category_id, title, description, priority, due_date, is_pinned)
+        'INSERT INTO tasks (user_id, category_id, title, description, priority, due_date, is_pinned, repeat_pattern) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        (current_user_id, category_id, title, description, priority, due_date, is_pinned, repeat_pattern)
     )
     conn.commit()
     task_id = cursor.lastrowid
@@ -472,6 +566,7 @@ def update_task(current_user_id, task_id):
     category_id = data.get('category_id', task['category_id'])
     priority = data.get('priority', task['priority'])
     is_pinned = data.get('is_pinned', task['is_pinned'])
+    repeat_pattern = validate_repeat_pattern(data.get('repeat_pattern', task['repeat_pattern'] or 'none'))
     
     if 'due_date' in data:
         due_date = format_due_date(data['due_date'])
@@ -489,8 +584,8 @@ def update_task(current_user_id, task_id):
             return jsonify({'error': '分类不存在'}), 404
     
     cursor.execute(
-        'UPDATE tasks SET title = ?, description = ?, completed = ?, category_id = ?, priority = ?, due_date = ?, is_pinned = ?, updated_at = ? WHERE id = ?',
-        (title, description, completed, category_id, priority, due_date, is_pinned, format_datetime(datetime.now()), task_id)
+        'UPDATE tasks SET title = ?, description = ?, completed = ?, category_id = ?, priority = ?, due_date = ?, is_pinned = ?, repeat_pattern = ?, updated_at = ? WHERE id = ?',
+        (title, description, completed, category_id, priority, due_date, is_pinned, repeat_pattern, format_datetime(datetime.now()), task_id)
     )
     conn.commit()
     cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
@@ -523,7 +618,19 @@ def toggle_task(current_user_id, task_id):
         conn.close()
         return jsonify({'error': '任务不存在'}), 404
     
-    new_completed = not bool(task['completed'])
+    old_completed = bool(task['completed'])
+    new_completed = not old_completed
+    
+    if new_completed and task['repeat_pattern'] and task['repeat_pattern'] != 'none':
+        cursor.execute('''
+            SELECT COUNT(*) as cnt FROM tasks 
+            WHERE repeat_parent_id = ? AND user_id = ? AND completed = 0
+        ''', (task['id'], current_user_id))
+        existing_count = cursor.fetchone()['cnt']
+        if existing_count == 0:
+            create_next_repeat_task(cursor, task, current_user_id)
+            conn.commit()
+    
     cursor.execute(
         'UPDATE tasks SET completed = ?, updated_at = ? WHERE id = ?',
         (new_completed, format_datetime(datetime.now()), task_id)
@@ -910,6 +1017,55 @@ def remove_tag_from_task(current_user_id, task_id, tag_id):
     
     conn.close()
     return jsonify([tag_to_dict(tag) for tag in tags])
+
+@app.route('/api/tasks/check-repeat', methods=['POST'])
+@token_required
+def check_repeat_tasks(current_user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT * FROM tasks 
+        WHERE user_id = ? 
+        AND repeat_pattern IS NOT NULL 
+        AND repeat_pattern != 'none'
+    ''', (current_user_id,))
+    repeat_tasks = cursor.fetchall()
+    
+    created_count = 0
+    
+    for task in repeat_tasks:
+        if not task['due_date']:
+            continue
+        task_due = parse_datetime(task['due_date'])
+        if task_due is None:
+            continue
+        
+        now = datetime.now()
+        if task_due <= now:
+            cursor.execute('''
+                SELECT COUNT(*) as cnt FROM tasks 
+                WHERE (repeat_parent_id = ? OR id = ?)
+                AND user_id = ? 
+                AND completed = 0
+                AND repeat_pattern IS NOT NULL 
+                AND repeat_pattern != 'none'
+            ''', (task['id'], task['id'], current_user_id))
+            result = cursor.fetchone()
+            has_active_next = result['cnt'] > 0
+            
+            if not has_active_next:
+                new_task = create_next_repeat_task(cursor, task, current_user_id)
+                if new_task:
+                    created_count += 1
+    
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        'message': f'检查完成，创建了 {created_count} 个重复任务',
+        'created_count': created_count
+    })
 
 if __name__ == '__main__':
     init_db()

@@ -1,5 +1,27 @@
 import React, { useState } from 'react';
 
+const REPEAT_OPTIONS = [
+  { value: 'none', label: '不重复', icon: '' },
+  { value: 'daily', label: '每天', icon: '🔁' },
+  { value: 'weekly', label: '每周', icon: '📅' },
+  { value: 'monthly', label: '每月', icon: '🗓️' },
+  { value: 'yearly', label: '每年', icon: '📆' },
+];
+
+const REPEAT_ICONS = {
+  daily: '🔁',
+  weekly: '📅',
+  monthly: '🗓️',
+  yearly: '📆',
+};
+
+const REPEAT_LABELS = {
+  daily: '每天',
+  weekly: '每周',
+  monthly: '每月',
+  yearly: '每年',
+};
+
 function formatForDatetimeLocal(dateStr) {
   if (!dateStr) return '';
   const normalized = dateStr.replace(' ', 'T');
@@ -13,6 +35,7 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
   const [editCategoryId, setEditCategoryId] = useState(task.category_id || '');
   const [editPriority, setEditPriority] = useState(task.priority || 'medium');
   const [editDueDate, setEditDueDate] = useState(formatForDatetimeLocal(task.due_date));
+  const [editRepeatPattern, setEditRepeatPattern] = useState(task.repeat_pattern || 'none');
   const [editTagIds, setEditTagIds] = useState((task.tags || []).map(t => t.id));
 
   const handleTagToggle = (tagId) => {
@@ -32,6 +55,7 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
         category_id: editCategoryId ? Number(editCategoryId) : null,
         priority: editPriority,
         due_date: editDueDate || null,
+        repeat_pattern: editRepeatPattern,
       });
 
       const currentTagIds = (task.tags || []).map(t => t.id);
@@ -61,6 +85,7 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
       setEditCategoryId(task.category_id || '');
       setEditPriority(task.priority || 'medium');
       setEditDueDate(formatForDatetimeLocal(task.due_date));
+      setEditRepeatPattern(task.repeat_pattern || 'none');
       setEditTagIds((task.tags || []).map(t => t.id));
     }
   };
@@ -127,6 +152,20 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
             onChange={(e) => setEditDueDate(e.target.value)}
           />
         </div>
+        <div className="task-repeat-select">
+          <label htmlFor={`edit-repeat-${task.id}`}>重复：</label>
+          <select
+            id={`edit-repeat-${task.id}`}
+            value={editRepeatPattern}
+            onChange={(e) => setEditRepeatPattern(e.target.value)}
+          >
+            {REPEAT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.icon} {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
         {categories.length > 0 && (
           <div className="task-category-select">
             <label htmlFor={`edit-category-${task.id}`}>选择分类：</label>
@@ -183,6 +222,7 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
               setEditCategoryId(task.category_id || '');
               setEditPriority(task.priority || 'medium');
               setEditDueDate(formatForDatetimeLocal(task.due_date));
+              setEditRepeatPattern(task.repeat_pattern || 'none');
               setEditTagIds((task.tags || []).map(t => t.id));
             }}
           >
@@ -236,6 +276,11 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
                 ))}
               </span>
             )}
+            {task.repeat_pattern && task.repeat_pattern !== 'none' && (
+              <span className="repeat-indicator" title={`重复：${REPEAT_LABELS[task.repeat_pattern]}`}>
+                {REPEAT_ICONS[task.repeat_pattern]}
+              </span>
+            )}
             {task.title}
           </h3>
           {task.description && (
@@ -247,6 +292,11 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
               <span className={`task-due-date-tag ${overdue ? 'overdue' : ''}`}>
                 📅 {formatDate(task.due_date)}
                 {overdue && ' (已过期)'}
+              </span>
+            )}
+            {task.repeat_pattern && task.repeat_pattern !== 'none' && (
+              <span className="task-repeat-tag">
+                {REPEAT_ICONS[task.repeat_pattern]} {REPEAT_LABELS[task.repeat_pattern]}
               </span>
             )}
             {task.category && (

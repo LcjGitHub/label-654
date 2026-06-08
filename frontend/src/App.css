@@ -1922,3 +1922,52 @@
 .pin-toggle-icon {
   font-size: 1rem;
 }
+
+.task-repeat-select {
+  margin-bottom: 12px;
+}
+
+.task-repeat-select label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.task-repeat-select select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 2px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: white;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+  font-family: inherit;
+}
+
+.task-repeat-select select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.repeat-indicator {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 0.95rem;
+  vertical-align: middle;
+  color: #667eea;
+}
+
+.task-repeat-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  background: #ede9fe;
+  color: #7c3aed;
+  border: 1px solid #ddd6fe;
+  white-space: nowrap;
+}

@@ -163,6 +163,14 @@ export const taskApi = {
     });
     return handleResponse(response);
   },
+
+  async checkRepeatTasks() {
+    const response = await fetch(`${API_BASE_URL}/tasks/check-repeat`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
 };
 
 export const categoryApi = {

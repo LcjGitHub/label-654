@@ -15,6 +15,14 @@ const PRESET_COLORS = [
   '#ff9a9e',
 ];
 
+const REPEAT_OPTIONS = [
+  { value: 'none', label: '不重复', icon: '' },
+  { value: 'daily', label: '每天', icon: '🔁' },
+  { value: 'weekly', label: '每周', icon: '📅' },
+  { value: 'monthly', label: '每月', icon: '🗓️' },
+  { value: 'yearly', label: '每年', icon: '📆' },
+];
+
 function AddTask({ onAdd, categories, tags, onCreateTag }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -22,6 +30,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
   const [priority, setPriority] = useState('medium');
   const [dueDate, setDueDate] = useState('');
   const [isPinned, setIsPinned] = useState(false);
+  const [repeatPattern, setRepeatPattern] = useState('none');
   const [selectedTagIds, setSelectedTagIds] = useState([]);
   const [showNewTagForm, setShowNewTagForm] = useState(false);
   const [newTagName, setNewTagName] = useState('');
@@ -78,6 +87,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
         priority: priority,
         due_date: dueDate || null,
         is_pinned: isPinned,
+        repeat_pattern: repeatPattern,
         tag_ids: selectedTagIds,
       });
       
@@ -87,6 +97,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
       setPriority('medium');
       setDueDate('');
       setIsPinned(false);
+      setRepeatPattern('none');
       setSelectedTagIds([]);
       setIsExpanded(false);
     } catch (err) {
@@ -146,6 +157,20 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />
+          </div>
+          <div className="task-repeat-select">
+            <label htmlFor="repeat-pattern">重复：</label>
+            <select
+              id="repeat-pattern"
+              value={repeatPattern}
+              onChange={(e) => setRepeatPattern(e.target.value)}
+            >
+              {REPEAT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.icon} {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="task-pin-select">
             <label className="pin-toggle-label">

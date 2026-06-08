@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { taskApi, categoryApi, tagApi } from './services/api';
 import { useAuth } from './context/AuthContext';
@@ -46,14 +46,15 @@ function TodoApp() {
     return Number(tagFilter);
   };
 
-  const fetchTasks = async (signal) => {
+  const fetchTasks = useCallback(async (signal) => {
     const search = debouncedSearch.trim() !== '' ? debouncedSearch : null;
     const categoryId = resolveCategoryIdForApi();
     const tagId = resolveTagIdForApi();
     return taskApi.getAllTasks(signal, categoryId, tagId, search);
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, categoryFilter, tagFilter]);
 
-  const refreshTasks = async () => {
+  const refreshTasks = useCallback(async () => {
     tasksAbortControllerRef.current?.abort();
     tasksAbortControllerRef.current = new AbortController();
     try {
@@ -71,7 +72,17 @@ function TodoApp() {
         setTasksLoading(false);
       }
     }
-  };
+  }, [fetchTasks]);
+
+  const checkAndCreateRepeatTasks = useCallback(async () => {
+    try {
+      const result = await taskApi.checkRepeatTasks();
+      if (result.created_count > 0) {
+        await refreshTasks();
+      }
+    } catch (err) {
+    }
+  }, [refreshTasks]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -98,6 +109,9 @@ function TodoApp() {
           setCategories(categoriesData);
           setTags(tagsData);
         }
+        if (!initialController.signal?.aborted) {
+          await checkAndCreateRepeatTasks();
+        }
       } catch (err) {
         if (err.name !== 'AbortError') {
           setError(err.message);
@@ -114,12 +128,21 @@ function TodoApp() {
     return () => {
       initialController.abort();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      checkAndCreateRepeatTasks();
+    }, 60 * 60 * 1000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (initialLoading) return;
     refreshTasks();
-  }, [debouncedSearch, categoryFilter, tagFilter]);
+  }, [debouncedSearch, categoryFilter, tagFilter, initialLoading, refreshTasks]);
 
   const handleAddCategory = async (category) => {
     try {
