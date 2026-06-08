@@ -39,6 +39,20 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreatingTag, setIsCreatingTag] = useState(false);
 
+  const resetForm = () => {
+    setTitle('');
+    setDescription('');
+    setCategoryId('');
+    setPriority('medium');
+    setDueDate('');
+    setIsPinned(false);
+    setRepeatPattern('none');
+    setSelectedTagIds([]);
+    setShowNewTagForm(false);
+    setNewTagName('');
+    setNewTagColor(PRESET_COLORS[0]);
+  };
+
   const handleTagToggle = (tagId) => {
     setSelectedTagIds(prev =>
       prev.includes(tagId)
@@ -91,14 +105,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
         tag_ids: selectedTagIds,
       });
       
-      setTitle('');
-      setDescription('');
-      setCategoryId('');
-      setPriority('medium');
-      setDueDate('');
-      setIsPinned(false);
-      setRepeatPattern('none');
-      setSelectedTagIds([]);
+      resetForm();
       setIsExpanded(false);
     } catch (err) {
     } finally {
@@ -279,7 +286,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
           </div>
 
           <div className="add-task-actions">
-            <button type="button" className="btn-cancel" onClick={() => setIsExpanded(false)}>
+            <button type="button" className="btn-cancel" onClick={() => { resetForm(); setIsExpanded(false); }}>
               取消
             </button>
             <button type="submit" className="btn-add" disabled={!title.trim() || isSubmitting}>

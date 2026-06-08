@@ -1,4 +1,7 @@
 import sqlite3
+import threading
+import time
+import atexit
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify
@@ -75,6 +78,38 @@ def validate_repeat_pattern(pattern):
     if pattern in VALID_REPEAT_PATTERNS:
         return pattern
     return 'none'
+
+def get_repeat_root_id(cursor, user_id, task_id):
+    if task_id is None:
+        return None
+    visited = set()
+    current_id = task_id
+    while current_id is not None and current_id not in visited:
+        visited.add(current_id)
+        cursor.execute(
+            'SELECT id, repeat_parent_id FROM tasks WHERE id = ? AND user_id = ?',
+            (current_id, user_id)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        if row['repeat_parent_id'] is None:
+            return row['id']
+        current_id = row['repeat_parent_id']
+    return None
+
+def series_has_active_next(cursor, user_id, root_id):
+    if root_id is None:
+        return False
+    cursor.execute('''
+        SELECT COUNT(*) as cnt FROM tasks 
+        WHERE user_id = ? 
+        AND completed = 0
+        AND repeat_pattern IS NOT NULL 
+        AND repeat_pattern != 'none'
+        AND (id = ? OR repeat_parent_id = ?)
+    ''', (user_id, root_id, root_id))
+    return cursor.fetchone()['cnt'] > 0
 
 def get_db():
     conn = sqlite3.connect(DATABASE)
@@ -449,25 +484,42 @@ def get_task(current_user_id, task_id):
 def create_next_repeat_task(cursor, original_task, current_user_id):
     if not original_task['repeat_pattern'] or original_task['repeat_pattern'] == 'none':
         return None
-    next_due_date = calculate_next_repeat_date(original_task['due_date'], original_task['repeat_pattern'])
+
+    root_id = get_repeat_root_id(cursor, current_user_id, original_task['id'])
+    if root_id is None:
+        root_id = original_task['id'] if original_task['repeat_parent_id'] is None else original_task['repeat_parent_id']
+
+    cursor.execute('''
+        SELECT MAX(due_date) as latest_due FROM tasks
+        WHERE user_id = ? AND (id = ? OR repeat_parent_id = ?)
+        AND due_date IS NOT NULL
+    ''', (current_user_id, root_id, root_id))
+    latest_row = cursor.fetchone()
+    base_date = latest_row['latest_due'] if latest_row and latest_row['latest_due'] else original_task['due_date']
+    next_due_date = calculate_next_repeat_date(base_date, original_task['repeat_pattern'])
+
+    source_id = root_id if root_id else original_task['id']
+    cursor.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (source_id, current_user_id))
+    source_task = cursor.fetchone() or original_task
+
     cursor.execute(
         'INSERT INTO tasks (user_id, category_id, title, description, priority, due_date, is_pinned, repeat_pattern, repeat_parent_id, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)',
         (
             current_user_id,
-            original_task['category_id'],
-            original_task['title'],
-            original_task['description'],
-            original_task['priority'],
+            source_task['category_id'],
+            source_task['title'],
+            source_task['description'],
+            source_task['priority'],
             next_due_date,
-            original_task['is_pinned'],
-            original_task['repeat_pattern'],
-            original_task['id'],
+            source_task['is_pinned'],
+            source_task['repeat_pattern'],
+            root_id,
         )
     )
     new_task_id = cursor.lastrowid
     cursor.execute('''
         SELECT tag_id FROM task_tags WHERE task_id = ?
-    ''', (original_task['id'],))
+    ''', (source_id,))
     tag_rows = cursor.fetchall()
     for tag_row in tag_rows:
         cursor.execute(
@@ -622,12 +674,8 @@ def toggle_task(current_user_id, task_id):
     new_completed = not old_completed
     
     if new_completed and task['repeat_pattern'] and task['repeat_pattern'] != 'none':
-        cursor.execute('''
-            SELECT COUNT(*) as cnt FROM tasks 
-            WHERE repeat_parent_id = ? AND user_id = ? AND completed = 0
-        ''', (task['id'], current_user_id))
-        existing_count = cursor.fetchone()['cnt']
-        if existing_count == 0:
+        root_id = get_repeat_root_id(cursor, current_user_id, task['id'])
+        if not series_has_active_next(cursor, current_user_id, root_id):
             create_next_repeat_task(cursor, task, current_user_id)
             conn.commit()
     
@@ -1018,55 +1066,107 @@ def remove_tag_from_task(current_user_id, task_id, tag_id):
     conn.close()
     return jsonify([tag_to_dict(tag) for tag in tags])
 
-@app.route('/api/tasks/check-repeat', methods=['POST'])
-@token_required
-def check_repeat_tasks(current_user_id):
-    conn = get_db()
-    cursor = conn.cursor()
-    
+def _process_user_repeat_tasks(cursor, user_id):
     cursor.execute('''
         SELECT * FROM tasks 
         WHERE user_id = ? 
         AND repeat_pattern IS NOT NULL 
         AND repeat_pattern != 'none'
-    ''', (current_user_id,))
-    repeat_tasks = cursor.fetchall()
-    
+    ''', (user_id,))
+    all_repeat_tasks = cursor.fetchall()
+
+    series_map = {}
+    for task in all_repeat_tasks:
+        root_id = get_repeat_root_id(cursor, user_id, task['id'])
+        if root_id is None:
+            continue
+        if root_id not in series_map:
+            series_map[root_id] = []
+        series_map[root_id].append(task)
+
     created_count = 0
-    
-    for task in repeat_tasks:
-        if not task['due_date']:
+    now = datetime.now()
+
+    for root_id, tasks_in_series in series_map.items():
+        if series_has_active_next(cursor, user_id, root_id):
             continue
-        task_due = parse_datetime(task['due_date'])
-        if task_due is None:
+
+        latest_task = None
+        latest_due = None
+        for t in tasks_in_series:
+            if not t['due_date']:
+                continue
+            td = parse_datetime(t['due_date'])
+            if td is None:
+                continue
+            if latest_due is None or td > latest_due:
+                latest_due = td
+                latest_task = t
+
+        if latest_task is None:
             continue
-        
-        now = datetime.now()
-        if task_due <= now:
-            cursor.execute('''
-                SELECT COUNT(*) as cnt FROM tasks 
-                WHERE (repeat_parent_id = ? OR id = ?)
-                AND user_id = ? 
-                AND completed = 0
-                AND repeat_pattern IS NOT NULL 
-                AND repeat_pattern != 'none'
-            ''', (task['id'], task['id'], current_user_id))
-            result = cursor.fetchone()
-            has_active_next = result['cnt'] > 0
-            
-            if not has_active_next:
-                new_task = create_next_repeat_task(cursor, task, current_user_id)
-                if new_task:
-                    created_count += 1
-    
-    conn.commit()
-    conn.close()
-    
-    return jsonify({
-        'message': f'检查完成，创建了 {created_count} 个重复任务',
-        'created_count': created_count
-    })
+
+        if latest_due <= now:
+            new_task = create_next_repeat_task(cursor, latest_task, user_id)
+            if new_task:
+                created_count += 1
+
+    return created_count
+
+@app.route('/api/tasks/check-repeat', methods=['POST'])
+@token_required
+def check_repeat_tasks(current_user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        created_count = _process_user_repeat_tasks(cursor, current_user_id)
+        conn.commit()
+        return jsonify({
+            'message': f'检查完成，创建了 {created_count} 个重复任务',
+            'created_count': created_count
+        })
+    finally:
+        conn.close()
+
+_scheduler_stop_event = threading.Event()
+_scheduler_thread = None
+
+def _daily_repeat_scheduler_loop():
+    while not _scheduler_stop_event.is_set():
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute('SELECT DISTINCT user_id FROM tasks WHERE repeat_pattern IS NOT NULL AND repeat_pattern != ?', ('none',))
+            user_rows = cursor.fetchall()
+            total_created = 0
+            for row in user_rows:
+                created = _process_user_repeat_tasks(cursor, row['user_id'])
+                total_created += created
+            if total_created > 0:
+                conn.commit()
+            conn.close()
+        except Exception as e:
+            try:
+                print(f'[daily-repeat-scheduler] error: {e}')
+            except Exception:
+                pass
+
+        _scheduler_stop_event.wait(24 * 60 * 60)
+
+def start_daily_repeat_scheduler():
+    global _scheduler_thread
+    if _scheduler_thread is not None and _scheduler_thread.is_alive():
+        return
+    _scheduler_stop_event.clear()
+    _scheduler_thread = threading.Thread(target=_daily_repeat_scheduler_loop, daemon=True)
+    _scheduler_thread.start()
+
+def stop_daily_repeat_scheduler():
+    _scheduler_stop_event.set()
+
+atexit.register(stop_daily_repeat_scheduler)
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True, port=5000)
+    start_daily_repeat_scheduler()
+    app.run(debug=True, port=5000, use_reloader=False)

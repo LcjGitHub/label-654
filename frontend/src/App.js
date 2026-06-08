@@ -81,6 +81,8 @@ function TodoApp() {
         await refreshTasks();
       }
     } catch (err) {
+      setError('检查重复任务失败：' + (err.message || '未知错误'));
+      setTimeout(() => setError(null), 5000);
     }
   }, [refreshTasks]);
 
@@ -134,7 +136,7 @@ function TodoApp() {
   useEffect(() => {
     const interval = setInterval(() => {
       checkAndCreateRepeatTasks();
-    }, 60 * 60 * 1000);
+    }, 24 * 60 * 60 * 1000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
