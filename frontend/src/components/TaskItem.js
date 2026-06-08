@@ -270,7 +270,7 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
           onClick={() => onTogglePin(task.id)}
           title={task.is_pinned ? '取消置顶' : '置顶'}
         >
-          {task.is_pinned ? '📌' : '📍'}
+          📌
         </button>
         <button className="btn-edit" onClick={() => setIsEditing(true)}>
           编辑

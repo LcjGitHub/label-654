@@ -21,6 +21,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
   const [categoryId, setCategoryId] = useState('');
   const [priority, setPriority] = useState('medium');
   const [dueDate, setDueDate] = useState('');
+  const [isPinned, setIsPinned] = useState(false);
   const [selectedTagIds, setSelectedTagIds] = useState([]);
   const [showNewTagForm, setShowNewTagForm] = useState(false);
   const [newTagName, setNewTagName] = useState('');
@@ -76,6 +77,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
         category_id: categoryId ? Number(categoryId) : null,
         priority: priority,
         due_date: dueDate || null,
+        is_pinned: isPinned,
         tag_ids: selectedTagIds,
       });
       
@@ -84,6 +86,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
       setCategoryId('');
       setPriority('medium');
       setDueDate('');
+      setIsPinned(false);
       setSelectedTagIds([]);
       setIsExpanded(false);
     } catch (err) {
@@ -143,6 +146,17 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />
+          </div>
+          <div className="task-pin-select">
+            <label className="pin-toggle-label">
+              <input
+                type="checkbox"
+                checked={isPinned}
+                onChange={(e) => setIsPinned(e.target.checked)}
+              />
+              <span className="pin-toggle-icon">📌</span>
+              <span className="pin-toggle-text">{isPinned ? '已置顶' : '置顶任务'}</span>
+            </label>
           </div>
           {categories.length > 0 && (
             <div className="task-category-select">

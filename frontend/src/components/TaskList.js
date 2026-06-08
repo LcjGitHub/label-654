@@ -29,23 +29,7 @@ function TaskList({ tasks, onToggle, onTogglePin, onDelete, onUpdate, filter, ca
     if (a.is_pinned !== b.is_pinned) {
       return b.is_pinned ? 1 : -1;
     }
-    switch (sortBy) {
-      case 'due_date_asc':
-        if (!a.due_date && !b.due_date) return 0;
-        if (!a.due_date) return 1;
-        if (!b.due_date) return -1;
-        return new Date(a.due_date) - new Date(b.due_date);
-      case 'due_date_desc':
-        if (!a.due_date && !b.due_date) return 0;
-        if (!a.due_date) return 1;
-        if (!b.due_date) return -1;
-        return new Date(b.due_date) - new Date(a.due_date);
-      case 'priority':
-        return priorityOrder[a.priority || 'medium'] - priorityOrder[b.priority || 'medium'];
-      case 'created_at':
-      default:
-        return new Date(b.created_at) - new Date(a.created_at);
-    }
+    return new Date(b.created_at) - new Date(a.created_at);
   });
 
   useEffect(() => {
