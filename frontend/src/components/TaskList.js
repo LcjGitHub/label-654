@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import TaskItem from './TaskItem';
 
-function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter, categories, tags, onStatsChange, onAddTagToTask, onRemoveTagFromTask, tagFilter, searchQuery }) {
+function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter, categories, tags, onStatsChange, onAddTagToTask, onRemoveTagFromTask, tagFilter, searchQuery, loading }) {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [sortBy, setSortBy] = useState('created_at');
   const priorityOrder = { high: 0, medium: 1, low: 2 };
@@ -58,7 +58,12 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
     }
   }, [categoryFilteredTasks, priorityFilter, categoryFilter, tagFilter, onStatsChange]);
 
+  const hasActiveSearch = searchQuery && searchQuery.trim() !== '';
+
   const getEmptyMessage = () => {
+    if (hasActiveSearch) {
+      return '未找到匹配的任务';
+    }
     if (tagFilter && tagFilter !== 'all' && tagFilter !== 'none') {
       const selectedTag = tags ? tags.find(t => t.id === Number(tagFilter)) : null;
       return selectedTag
@@ -76,47 +81,64 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
     return '没有符合条件的任务';
   };
 
-  const searchResultInfo = searchQuery && searchQuery.trim() !== '' ? (
+  const searchResultInfo = hasActiveSearch && !loading ? (
     <div className="search-result-info">
       找到 <strong>{sortedTasks.length}</strong> 个匹配 "{searchQuery.trim()}" 的任务
     </div>
   ) : null;
 
+  const filterControls = (
+    <div className="list-filter-controls">
+      <div className="priority-filter">
+        <label htmlFor="priority-filter">优先级：</label>
+        <select
+          id="priority-filter"
+          value={priorityFilter}
+          onChange={(e) => setPriorityFilter(e.target.value)}
+        >
+          <option value="all">全部优先级</option>
+          <option value="high">🔴 高优先级</option>
+          <option value="medium">🟡 中优先级</option>
+          <option value="low">🟢 低优先级</option>
+        </select>
+      </div>
+
+      <div className="sort-control">
+        <label htmlFor="sort-by">排序：</label>
+        <select
+          id="sort-by"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+        >
+          <option value="created_at">按创建时间</option>
+          <option value="due_date_asc">截止日期（升序）</option>
+          <option value="due_date_desc">截止日期（降序）</option>
+          <option value="priority">按优先级</option>
+        </select>
+      </div>
+    </div>
+  );
+
+  if (loading) {
+    return (
+      <div className="task-list-section">
+        {filterControls}
+        {searchResultInfo}
+        <div className="task-list-loading">
+          <div className="spinner"></div>
+          <span>搜索中...</span>
+        </div>
+      </div>
+    );
+  }
+
   if (sortedTasks.length === 0) {
     return (
       <div className="task-list-section">
-        <div className="list-filter-controls">
-          <div className="priority-filter">
-            <label htmlFor="priority-filter">优先级：</label>
-            <select
-              id="priority-filter"
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-            >
-              <option value="all">全部优先级</option>
-              <option value="high">🔴 高优先级</option>
-              <option value="medium">🟡 中优先级</option>
-              <option value="low">🟢 低优先级</option>
-            </select>
-          </div>
-
-          <div className="sort-control">
-            <label htmlFor="sort-by">排序：</label>
-            <select
-              id="sort-by"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-            >
-              <option value="created_at">按创建时间</option>
-              <option value="due_date_asc">截止日期（升序）</option>
-              <option value="due_date_desc">截止日期（降序）</option>
-              <option value="priority">按优先级</option>
-            </select>
-          </div>
-        </div>
+        {filterControls}
         {searchResultInfo}
         <div className="empty-state">
-          <div className="empty-icon">📋</div>
+          <div className="empty-icon">{hasActiveSearch ? '🔍' : '📋'}</div>
           <p>{getEmptyMessage()}</p>
         </div>
       </div>
@@ -125,35 +147,7 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
 
   return (
     <div className="task-list-section">
-      <div className="list-filter-controls">
-        <div className="priority-filter">
-          <label htmlFor="priority-filter">优先级：</label>
-          <select
-            id="priority-filter"
-            value={priorityFilter}
-            onChange={(e) => setPriorityFilter(e.target.value)}
-          >
-            <option value="all">全部优先级</option>
-            <option value="high">🔴 高优先级</option>
-            <option value="medium">🟡 中优先级</option>
-            <option value="low">🟢 低优先级</option>
-          </select>
-        </div>
-
-        <div className="sort-control">
-          <label htmlFor="sort-by">排序：</label>
-          <select
-            id="sort-by"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-          >
-            <option value="created_at">按创建时间</option>
-            <option value="due_date_asc">截止日期（升序）</option>
-            <option value="due_date_desc">截止日期（降序）</option>
-            <option value="priority">按优先级</option>
-          </select>
-        </div>
-      </div>
+      {filterControls}
       {searchResultInfo}
       <div className="task-list">
         {sortedTasks.map((task) => (

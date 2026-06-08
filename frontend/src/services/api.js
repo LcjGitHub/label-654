@@ -97,10 +97,10 @@ export const taskApi = {
     let url = `${API_BASE_URL}/tasks`;
     const params = [];
     if (categoryId !== null) {
-      params.push(`category_id=${categoryId}`);
+      params.push(`category_id=${encodeURIComponent(categoryId)}`);
     }
     if (tagId !== null) {
-      params.push(`tag_id=${tagId}`);
+      params.push(`tag_id=${encodeURIComponent(tagId)}`);
     }
     if (search !== null && search.trim() !== '') {
       params.push(`search=${encodeURIComponent(search.trim())}`);

@@ -268,36 +268,66 @@ def login():
 @app.route('/api/tasks', methods=['GET'])
 @token_required
 def get_tasks(current_user_id):
-    category_id = request.args.get('category_id', type=int)
-    tag_id = request.args.get('tag_id', type=int)
+    category_id_raw = request.args.get('category_id', type=str)
+    tag_id_raw = request.args.get('tag_id', type=str)
     search = request.args.get('search', type=str)
+    
+    category_id = None
+    category_is_none = False
+    if category_id_raw is not None:
+        if category_id_raw == 'none':
+            category_is_none = True
+        else:
+            try:
+                category_id = int(category_id_raw)
+            except (ValueError, TypeError):
+                category_id = None
+    
+    tag_id = None
+    tag_is_none = False
+    if tag_id_raw is not None:
+        if tag_id_raw == 'none':
+            tag_is_none = True
+        else:
+            try:
+                tag_id = int(tag_id_raw)
+            except (ValueError, TypeError):
+                tag_id = None
+    
     conn = get_db()
     cursor = conn.cursor()
     
-    base_query = 'SELECT * FROM tasks WHERE user_id = ?'
     params = [current_user_id]
+    where_clauses = ['t.user_id = ?']
     
     if search:
         search_pattern = f'%{search}%'
-        base_query += ' AND (title LIKE ? OR description LIKE ?)'
+        where_clauses.append('(t.title LIKE ? OR t.description LIKE ?)')
         params.extend([search_pattern, search_pattern])
     
-    if tag_id is not None:
-        cursor.execute(f'''
-            SELECT DISTINCT t.* FROM tasks t
-            INNER JOIN task_tags tt ON t.id = tt.task_id
-            WHERE t.user_id = ? AND tt.tag_id = ?
-            {'AND (t.title LIKE ? OR t.description LIKE ?)' if search else ''}
-            ORDER BY t.created_at DESC
-        ''', [current_user_id, tag_id] + ([f'%{search}%', f'%{search}%'] if search else []))
+    if category_is_none:
+        where_clauses.append('t.category_id IS NULL')
     elif category_id is not None:
-        base_query += ' AND category_id = ?'
+        where_clauses.append('t.category_id = ?')
         params.append(category_id)
-        base_query += ' ORDER BY created_at DESC'
-        cursor.execute(base_query, params)
-    else:
-        base_query += ' ORDER BY created_at DESC'
-        cursor.execute(base_query, params)
+    
+    if tag_is_none:
+        where_clauses.append('''
+            t.id NOT IN (SELECT DISTINCT task_id FROM task_tags)
+        ''')
+    elif tag_id is not None:
+        where_clauses.append('''
+            t.id IN (SELECT DISTINCT task_id FROM task_tags WHERE tag_id = ?)
+        ''')
+        params.append(tag_id)
+    
+    where_sql = ' AND '.join(where_clauses)
+    query = f'''
+        SELECT DISTINCT t.* FROM tasks t
+        WHERE {where_sql}
+        ORDER BY t.created_at DESC
+    '''
+    cursor.execute(query, params)
     
     tasks = cursor.fetchall()
     

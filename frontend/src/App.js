@@ -24,25 +24,54 @@ function TodoApp() {
   const [tagFilter, setTagFilter] = useState(null);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [showTagManager, setShowTagManager] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [tasksLoading, setTasksLoading] = useState(false);
   const [error, setError] = useState(null);
   const [stats, setStats] = useState({ total: 0, active: 0, completed: 0, priorityFilter: 'all', categoryFilter: 'all' });
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const abortControllerRef = useRef(null);
-  const searchAbortControllerRef = useRef(null);
+  const tasksAbortControllerRef = useRef(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    abortControllerRef.current = new AbortController();
-    
-    loadData(abortControllerRef.current.signal);
+  const resolveCategoryIdForApi = () => {
+    if (categoryFilter === 'all') return null;
+    if (categoryFilter === 'none') return 'none';
+    return Number(categoryFilter);
+  };
 
-    return () => {
-      abortControllerRef.current?.abort();
-    };
-  }, []);
+  const resolveTagIdForApi = () => {
+    if (tagFilter === null || tagFilter === 'all') return null;
+    if (tagFilter === 'none') return 'none';
+    return Number(tagFilter);
+  };
+
+  const fetchTasks = async (signal) => {
+    const search = debouncedSearch.trim() !== '' ? debouncedSearch : null;
+    const categoryId = resolveCategoryIdForApi();
+    const tagId = resolveTagIdForApi();
+    return taskApi.getAllTasks(signal, categoryId, tagId, search);
+  };
+
+  const refreshTasks = async () => {
+    tasksAbortControllerRef.current?.abort();
+    tasksAbortControllerRef.current = new AbortController();
+    try {
+      setTasksLoading(true);
+      const tasksData = await fetchTasks(tasksAbortControllerRef.current.signal);
+      if (!tasksAbortControllerRef.current.signal?.aborted) {
+        setTasks(tasksData);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setError(err.message);
+      }
+    } finally {
+      if (!tasksAbortControllerRef.current.signal?.aborted) {
+        setTasksLoading(false);
+      }
+    }
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -52,63 +81,45 @@ function TodoApp() {
   }, [searchQuery]);
 
   useEffect(() => {
-    searchAbortControllerRef.current?.abort();
-    searchAbortControllerRef.current = new AbortController();
-    
-    const searchTasks = async () => {
+    const initialController = new AbortController();
+    tasksAbortControllerRef.current = initialController;
+
+    const initData = async () => {
       try {
-        setLoading(true);
-        const tasksData = await taskApi.getAllTasks(
-          searchAbortControllerRef.current.signal,
-          null,
-          null,
-          debouncedSearch
-        );
-        if (!searchAbortControllerRef.current.signal?.aborted) {
+        setInitialLoading(true);
+        setError(null);
+        const [tasksData, categoriesData, tagsData] = await Promise.all([
+          fetchTasks(initialController.signal),
+          categoryApi.getAllCategories(initialController.signal),
+          tagApi.getAllTags(initialController.signal),
+        ]);
+        if (!initialController.signal?.aborted) {
           setTasks(tasksData);
+          setCategories(categoriesData);
+          setTags(tagsData);
         }
       } catch (err) {
         if (err.name !== 'AbortError') {
           setError(err.message);
         }
       } finally {
-        if (!searchAbortControllerRef.current.signal?.aborted) {
-          setLoading(false);
+        if (!initialController.signal?.aborted) {
+          setInitialLoading(false);
         }
       }
     };
 
-    searchTasks();
+    initData();
 
     return () => {
-      searchAbortControllerRef.current?.abort();
+      initialController.abort();
     };
-  }, [debouncedSearch]);
+  }, []);
 
-  const loadData = async (signal) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const [tasksData, categoriesData, tagsData] = await Promise.all([
-        taskApi.getAllTasks(signal, null, null, debouncedSearch),
-        categoryApi.getAllCategories(signal),
-        tagApi.getAllTags(signal),
-      ]);
-      if (!signal?.aborted) {
-        setTasks(tasksData);
-        setCategories(categoriesData);
-        setTags(tagsData);
-      }
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        setError(err.message);
-      }
-    } finally {
-      if (!signal?.aborted) {
-        setLoading(false);
-      }
-    }
-  };
+  useEffect(() => {
+    if (initialLoading) return;
+    refreshTasks();
+  }, [debouncedSearch, categoryFilter, tagFilter]);
 
   const handleAddCategory = async (category) => {
     try {
@@ -270,17 +281,8 @@ function TodoApp() {
   const handleAddTask = async (task) => {
     try {
       setError(null);
-      const newTask = await taskApi.createTask(task);
-      setTasks(prevTasks => [newTask, ...prevTasks]);
-      if (task.tag_ids && task.tag_ids.length > 0) {
-        setTags(prevTags =>
-          prevTags.map(t =>
-            task.tag_ids.includes(t.id)
-              ? { ...t, task_count: (t.task_count || 0) + 1 }
-              : t
-          )
-        );
-      }
+      await taskApi.createTask(task);
+      await refreshTasks();
     } catch (err) {
       setError(err.message);
       throw err;
@@ -290,8 +292,8 @@ function TodoApp() {
   const handleToggleTask = async (id) => {
     try {
       setError(null);
-      const updatedTask = await taskApi.toggleTask(id);
-      setTasks(prevTasks => prevTasks.map((task) => (task.id === id ? updatedTask : task)));
+      await taskApi.toggleTask(id);
+      await refreshTasks();
     } catch (err) {
       setError(err.message);
     }
@@ -300,19 +302,8 @@ function TodoApp() {
   const handleDeleteTask = async (id) => {
     try {
       setError(null);
-      const taskToDelete = tasks.find(t => t.id === id);
-      const taskTagIds = taskToDelete?.tags?.map(t => t.id) || [];
       await taskApi.deleteTask(id);
-      setTasks(prevTasks => prevTasks.filter((task) => task.id !== id));
-      if (taskTagIds.length > 0) {
-        setTags(prevTags =>
-          prevTags.map(t =>
-            taskTagIds.includes(t.id)
-              ? { ...t, task_count: Math.max(0, (t.task_count || 0) - 1) }
-              : t
-          )
-        );
-      }
+      await refreshTasks();
     } catch (err) {
       setError(err.message);
     }
@@ -321,8 +312,8 @@ function TodoApp() {
   const handleUpdateTask = async (id, taskData) => {
     try {
       setError(null);
-      const updatedTask = await taskApi.updateTask(id, taskData);
-      setTasks(prevTasks => prevTasks.map((task) => (task.id === id ? updatedTask : task)));
+      await taskApi.updateTask(id, taskData);
+      await refreshTasks();
     } catch (err) {
       setError(err.message);
     }
@@ -332,25 +323,10 @@ function TodoApp() {
     try {
       setError(null);
       const completedTasks = tasks.filter((task) => task.completed);
-      const tagIdCounts = {};
-      completedTasks.forEach(task => {
-        (task.tags || []).forEach(tag => {
-          tagIdCounts[tag.id] = (tagIdCounts[tag.id] || 0) + 1;
-        });
-      });
       await Promise.all(
         completedTasks.map((task) => taskApi.deleteTask(task.id))
       );
-      setTasks(prevTasks => prevTasks.filter((task) => !task.completed));
-      if (Object.keys(tagIdCounts).length > 0) {
-        setTags(prevTags =>
-          prevTags.map(t =>
-            tagIdCounts[t.id]
-              ? { ...t, task_count: Math.max(0, (t.task_count || 0) - tagIdCounts[t.id]) }
-              : t
-          )
-        );
-      }
+      await refreshTasks();
     } catch (err) {
       setError(err.message);
     }
@@ -487,7 +463,7 @@ function TodoApp() {
           </div>
         </div>
 
-        {loading ? (
+        {initialLoading ? (
           <div className="loading">加载中...</div>
         ) : (
           <TaskList
@@ -504,10 +480,11 @@ function TodoApp() {
             onRemoveTagFromTask={handleRemoveTagFromTask}
             tagFilter={tagFilter}
             searchQuery={searchQuery}
+            loading={tasksLoading}
           />
         )}
 
-        {completedCount > 0 && (
+        {completedCount > 0 && !initialLoading && (
           <div className="footer-actions">
             <button className="btn-clear-completed" onClick={handleClearCompleted}>
               清除已完成任务
@@ -517,7 +494,7 @@ function TodoApp() {
 
         <footer className="app-footer">
           <p>
-            {loading
+            {initialLoading
               ? '正在加载任务列表...'
               : (() => {
                 const selectedTag = (stats.tagFilter && stats.tagFilter !== 'all' && stats.tagFilter !== 'none')
