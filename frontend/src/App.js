@@ -10,6 +10,7 @@ import AddTag from './components/AddTag';
 import TagList from './components/TagList';
 import TagCloud from './components/TagCloud';
 import SearchBar from './components/SearchBar';
+import StatsPanel from './components/StatsPanel';
 import Login from './components/Login';
 import Register from './components/Register';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -30,6 +31,7 @@ function TodoApp() {
   const [stats, setStats] = useState({ total: 0, active: 0, completed: 0, priorityFilter: 'all', categoryFilter: 'all' });
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [showStats, setShowStats] = useState(false);
   const tasksAbortControllerRef = useRef(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -437,6 +439,14 @@ function TodoApp() {
               <p className="subtitle">高效管理你的日常任务</p>
             </div>
             <div className="user-info">
+              <button
+                type="button"
+                className="btn-stats"
+                onClick={() => setShowStats(true)}
+                title="查看任务统计"
+              >
+                📊 统计
+              </button>
               <span className="username">👤 {user?.username}</span>
               <button className="btn-logout" onClick={handleLogout}>
                 退出登录
@@ -625,6 +635,8 @@ function TodoApp() {
               })()}
           </p>
         </footer>
+
+        {showStats && <StatsPanel onClose={() => setShowStats(false)} />}
       </div>
     </div>
   );

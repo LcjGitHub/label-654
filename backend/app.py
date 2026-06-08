@@ -185,6 +185,12 @@ def migrate_db():
         ''')
         conn.commit()
     
+    if 'completed_at' not in columns:
+        cursor.execute('''
+            ALTER TABLE tasks ADD COLUMN completed_at TIMESTAMP
+        ''')
+        conn.commit()
+    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS attachments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -237,6 +243,7 @@ def init_db():
             is_pinned BOOLEAN DEFAULT 0,
             repeat_pattern TEXT DEFAULT 'none',
             repeat_parent_id INTEGER,
+            completed_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
@@ -343,6 +350,7 @@ def task_to_dict(task, category=None, tags=None, attachments=None):
         'is_pinned': bool(task['is_pinned']),
         'repeat_pattern': task['repeat_pattern'] or 'none',
         'repeat_parent_id': task['repeat_parent_id'],
+        'completed_at': task['completed_at'],
         'created_at': task['created_at'],
         'updated_at': task['updated_at']
     }
@@ -707,9 +715,18 @@ def update_task(current_user_id, task_id):
             conn.close()
             return jsonify({'error': '分类不存在'}), 404
     
+    old_completed = bool(task['completed'])
+    new_completed = bool(completed)
+    if new_completed and not old_completed:
+        completed_at_val = format_datetime(datetime.now())
+    elif not new_completed and old_completed:
+        completed_at_val = None
+    else:
+        completed_at_val = task['completed_at']
+    
     cursor.execute(
-        'UPDATE tasks SET title = ?, description = ?, completed = ?, category_id = ?, priority = ?, due_date = ?, is_pinned = ?, repeat_pattern = ?, updated_at = ? WHERE id = ?',
-        (title, description, completed, category_id, priority, due_date, is_pinned, repeat_pattern, format_datetime(datetime.now()), task_id)
+        'UPDATE tasks SET title = ?, description = ?, completed = ?, completed_at = ?, category_id = ?, priority = ?, due_date = ?, is_pinned = ?, repeat_pattern = ?, updated_at = ? WHERE id = ?',
+        (title, description, completed, completed_at_val, category_id, priority, due_date, is_pinned, repeat_pattern, format_datetime(datetime.now()), task_id)
     )
     conn.commit()
     cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
@@ -756,9 +773,10 @@ def toggle_task(current_user_id, task_id):
             create_next_repeat_task(cursor, task, current_user_id)
             conn.commit()
     
+    completed_at_val = format_datetime(datetime.now()) if new_completed else None
     cursor.execute(
-        'UPDATE tasks SET completed = ?, updated_at = ? WHERE id = ?',
-        (new_completed, format_datetime(datetime.now()), task_id)
+        'UPDATE tasks SET completed = ?, completed_at = ?, updated_at = ? WHERE id = ?',
+        (new_completed, completed_at_val, format_datetime(datetime.now()), task_id)
     )
     conn.commit()
     cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
@@ -1404,6 +1422,113 @@ def stop_daily_repeat_scheduler():
     _scheduler_stop_event.set()
 
 atexit.register(stop_daily_repeat_scheduler)
+
+@app.route('/api/stats', methods=['GET'])
+@token_required
+def get_stats(current_user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    now = datetime.now()
+    today_start = datetime(now.year, now.month, now.day)
+    today_end = today_start + timedelta(days=1)
+    
+    week_start = now - timedelta(days=now.weekday())
+    week_start = datetime(week_start.year, week_start.month, week_start.day)
+    week_end = week_start + timedelta(days=7)
+    
+    cursor.execute('''
+        SELECT COUNT(*) FROM tasks 
+        WHERE user_id = ? AND completed = 1 
+        AND completed_at >= ? AND completed_at < ?
+    ''', (current_user_id, format_datetime(today_start), format_datetime(today_end)))
+    today_completed = cursor.fetchone()[0]
+    
+    cursor.execute('''
+        SELECT COUNT(*) FROM tasks 
+        WHERE user_id = ? AND completed = 1 
+        AND completed_at >= ? AND completed_at < ?
+    ''', (current_user_id, format_datetime(week_start), format_datetime(week_end)))
+    week_completed = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ?', (current_user_id,))
+    total_tasks = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ? AND completed = 1', (current_user_id,))
+    total_completed = cursor.fetchone()[0]
+    
+    completion_rate = 0.0
+    if total_tasks > 0:
+        completion_rate = round((total_completed / total_tasks) * 100, 1)
+    
+    cursor.execute('''
+        SELECT created_at, completed_at FROM tasks 
+        WHERE user_id = ? AND completed = 1 
+        AND created_at IS NOT NULL AND completed_at IS NOT NULL
+    ''', (current_user_id,))
+    completed_tasks = cursor.fetchall()
+    
+    avg_completion_minutes = 0.0
+    durations = []
+    for row in completed_tasks:
+        created = parse_datetime(row['created_at'])
+        completed = parse_datetime(row['completed_at'])
+        if created and completed:
+            duration = (completed - created).total_seconds() / 60
+            if duration > 0:
+                durations.append(duration)
+    
+    if durations:
+        avg_completion_minutes = round(sum(durations) / len(durations), 1)
+    
+    daily_trend = []
+    for i in range(6, -1, -1):
+        day_date = now - timedelta(days=i)
+        day_start = datetime(day_date.year, day_date.month, day_date.day)
+        day_end = day_start + timedelta(days=1)
+        
+        cursor.execute('''
+            SELECT COUNT(*) FROM tasks 
+            WHERE user_id = ? AND completed = 1 
+            AND completed_at >= ? AND completed_at < ?
+        ''', (current_user_id, format_datetime(day_start), format_datetime(day_end)))
+        count = cursor.fetchone()[0]
+        
+        cursor.execute('''
+            SELECT COUNT(*) FROM tasks 
+            WHERE user_id = ? AND created_at >= ? AND created_at < ?
+        ''', (current_user_id, format_datetime(day_start), format_datetime(day_end)))
+        created_count = cursor.fetchone()[0]
+        
+        daily_trend.append({
+            'date': day_start.strftime('%Y-%m-%d'),
+            'label': day_start.strftime('%m-%d'),
+            'completed': count,
+            'created': created_count,
+        })
+    
+    cursor.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ? AND completed = 0', (current_user_id,))
+    active_tasks = cursor.fetchone()[0]
+    
+    cursor.execute('''
+        SELECT COUNT(*) FROM tasks 
+        WHERE user_id = ? AND completed = 0 AND due_date IS NOT NULL AND due_date < ?
+    ''', (current_user_id, format_datetime(now)))
+    overdue_tasks = cursor.fetchone()[0]
+    
+    conn.close()
+    
+    return jsonify({
+        'today_completed': today_completed,
+        'week_completed': week_completed,
+        'total_tasks': total_tasks,
+        'total_completed': total_completed,
+        'active_tasks': active_tasks,
+        'overdue_tasks': overdue_tasks,
+        'completion_rate': completion_rate,
+        'avg_completion_minutes': avg_completion_minutes,
+        'daily_trend': daily_trend,
+    })
 
 if __name__ == '__main__':
     init_db()

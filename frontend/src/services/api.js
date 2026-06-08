@@ -364,4 +364,14 @@ export const attachmentApi = {
   },
 };
 
+export const statsApi = {
+  async getStats(signal) {
+    const response = await fetch(`${API_BASE_URL}/stats`, {
+      signal,
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+};
+
 export { clearAuth, handleUnauthorized };
