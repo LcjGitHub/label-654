@@ -4,6 +4,64 @@ export interface User {
   created_at: string;
 }
 
+export interface Team {
+  id: number;
+  name: string;
+  description: string | null;
+  created_by: number;
+  invite_token: string;
+  created_at: string;
+  member_count: number;
+}
+
+export interface TeamMember {
+  id: number;
+  team_id: number;
+  user_id: number;
+  username: string;
+  role: 'admin' | 'member';
+  joined_at: string;
+}
+
+export interface TeamUser {
+  id: number;
+  username: string;
+  created_at: string;
+  role: 'admin' | 'member';
+}
+
+export interface TaskShare {
+  id: number;
+  task_id: number;
+  team_id: number | null;
+  shared_with_user_id: number | null;
+  shared_with_username?: string;
+  team_name?: string;
+  can_edit: boolean;
+  created_at: string;
+}
+
+export interface TeamCreate {
+  name: string;
+  description?: string;
+}
+
+export interface TeamUpdate {
+  name?: string;
+  description?: string;
+}
+
+export interface InvitationCreate {
+  email: string;
+}
+
+export interface InvitationInfo {
+  team_id: number;
+  team_name: string;
+  email: string;
+  expires_at: string;
+}
+
 export interface AuthResponse {
   token: string;
   user: User;
@@ -11,12 +69,15 @@ export interface AuthResponse {
 
 export interface Task {
   id: number;
+  user_id: number;
   title: string;
   description: string | null;
   completed: boolean;
   pinned: boolean;
   category_id: number | null;
-  user_id: number;
+  assignee_id: number | null;
+  assignee?: User;
+  creator?: User;
   due_date: string | null;
   repeat: 'none' | 'daily' | 'weekly' | 'monthly';
   created_at: string;
@@ -24,6 +85,10 @@ export interface Task {
   category: Category | null;
   tags: Tag[];
   attachments: Attachment[];
+  is_pinned?: boolean;
+  priority?: string;
+  repeat_pattern?: string;
+  repeat_parent_id?: number | null;
 }
 
 export interface TaskCreate {
@@ -32,6 +97,14 @@ export interface TaskCreate {
   category_id?: number | null;
   due_date?: string | null;
   repeat?: 'none' | 'daily' | 'weekly' | 'monthly';
+  assignee_id?: number | null;
+  share_team_id?: number | null;
+  share_with_user_ids?: number[];
+  share_can_edit?: boolean;
+  priority?: string;
+  is_pinned?: boolean;
+  repeat_pattern?: string;
+  tag_ids?: number[];
 }
 
 export interface TaskUpdate {
@@ -42,6 +115,10 @@ export interface TaskUpdate {
   category_id?: number | null;
   due_date?: string | null;
   repeat?: 'none' | 'daily' | 'weekly' | 'monthly';
+  assignee_id?: number | null;
+  priority?: string;
+  is_pinned?: boolean;
+  repeat_pattern?: string;
 }
 
 export interface Category {

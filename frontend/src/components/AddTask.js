@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { attachmentApi } from '../services/api';
+import React, { useState, useRef, useEffect } from 'react';
+import { attachmentApi, teamApi } from '../services/api';
 
 const PRESET_COLORS = [
   '#667eea',
@@ -44,6 +44,51 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
   const [submitError, setSubmitError] = useState('');
   const fileInputRef = useRef(null);
 
+  const [teams, setTeams] = useState([]);
+  const [teamUsers, setTeamUsers] = useState([]);
+  const [selectedTeamId, setSelectedTeamId] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [selectedShareUserIds, setSelectedShareUserIds] = useState([]);
+  const [shareCanEdit, setShareCanEdit] = useState(false);
+  const [loadingTeams, setLoadingTeams] = useState(false);
+
+  useEffect(() => {
+    if (isExpanded) {
+      loadTeams();
+    }
+  }, [isExpanded]);
+
+  useEffect(() => {
+    if (selectedTeamId) {
+      loadTeamUsers(Number(selectedTeamId));
+      setAssigneeId('');
+      setSelectedShareUserIds([]);
+    } else {
+      setTeamUsers([]);
+    }
+  }, [selectedTeamId]);
+
+  const loadTeams = async () => {
+    try {
+      setLoadingTeams(true);
+      const data = await teamApi.getAllTeams();
+      setTeams(data);
+    } catch (err) {
+      console.error('加载团队失败:', err);
+    } finally {
+      setLoadingTeams(false);
+    }
+  };
+
+  const loadTeamUsers = async (teamId) => {
+    try {
+      const data = await teamApi.getTeamUsers(teamId);
+      setTeamUsers(data);
+    } catch (err) {
+      console.error('加载团队成员失败:', err);
+    }
+  };
+
   const resetForm = () => {
     setTitle('');
     setDescription('');
@@ -59,6 +104,10 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
     setSelectedFiles([]);
     setUploadError('');
     setSubmitError('');
+    setSelectedTeamId('');
+    setAssigneeId('');
+    setSelectedShareUserIds([]);
+    setShareCanEdit(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -81,21 +130,19 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const uploadFilesForTask = async (taskId) => {
-    for (const file of selectedFiles) {
-      try {
-        await attachmentApi.uploadAttachment(taskId, file);
-      } catch (err) {
-        console.error('上传附件失败:', err);
-      }
-    }
-  };
-
   const handleTagToggle = (tagId) => {
     setSelectedTagIds(prev =>
       prev.includes(tagId)
         ? prev.filter(id => id !== tagId)
         : [...prev, tagId]
+    );
+  };
+
+  const handleShareUserToggle = (userId) => {
+    setSelectedShareUserIds(prev =>
+      prev.includes(userId)
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
     );
   };
 
@@ -144,6 +191,10 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
         is_pinned: isPinned,
         repeat_pattern: repeatPattern,
         tag_ids: selectedTagIds,
+        assignee_id: assigneeId ? Number(assigneeId) : null,
+        share_team_id: selectedTeamId ? Number(selectedTeamId) : null,
+        share_with_user_ids: selectedShareUserIds,
+        share_can_edit: shareCanEdit,
       }, selectedFiles);
 
       if (result.failedFiles && result.failedFiles.length > 0) {
@@ -254,6 +305,80 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+
+          {teams.length > 0 && (
+            <div className="team-collaboration-section">
+              <h4 className="section-title">👥 团队协作</h4>
+              <div className="task-team-select">
+                <label htmlFor="team">共享团队：</label>
+                <select
+                  id="team"
+                  value={selectedTeamId}
+                  onChange={(e) => setSelectedTeamId(e.target.value)}
+                >
+                  <option value="">不共享到团队</option>
+                  {teams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name} ({team.member_count}人)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedTeamId && teamUsers.length > 0 && (
+                <>
+                  <div className="task-assignee-select">
+                    <label htmlFor="assignee">指派给：</label>
+                    <select
+                      id="assignee"
+                      value={assigneeId}
+                      onChange={(e) => setAssigneeId(e.target.value)}
+                    >
+                      <option value="">不指派</option>
+                      {teamUsers.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.username} {user.role === 'admin' ? '(管理员)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="task-share-users">
+                    <label>可见成员：</label>
+                    <div className="user-checkboxes">
+                      {teamUsers.map((user) => (
+                        <label
+                          key={user.id}
+                          className={`user-checkbox ${selectedShareUserIds.includes(user.id) ? 'selected' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedShareUserIds.includes(user.id)}
+                            onChange={() => handleShareUserToggle(user.id)}
+                          />
+                          <span className="user-checkbox-avatar">
+                            {user.username.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="user-checkbox-name">{user.username}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="task-share-permission">
+                    <label className="share-permission-label">
+                      <input
+                        type="checkbox"
+                        checked={shareCanEdit}
+                        onChange={(e) => setShareCanEdit(e.target.checked)}
+                      />
+                      <span>允许成员编辑此任务</span>
+                    </label>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

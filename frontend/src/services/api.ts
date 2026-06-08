@@ -4,5 +4,6 @@ export { categoryApi } from './category';
 export { tagApi } from './tag';
 export { attachmentApi } from './attachment';
 export { statsApi } from './stats';
+export { teamApi } from './team';
 export { httpClient, API_BASE_URL } from './client';
 export type * from './types';

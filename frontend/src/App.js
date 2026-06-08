@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { taskApi, categoryApi, tagApi, attachmentApi } from './services/api';
+import { taskApi, categoryApi, tagApi, attachmentApi, teamApi } from './services/api';
 import { useAuth } from './context/AuthContext';
 import AddTask from './components/AddTask';
 import TaskList from './components/TaskList';
@@ -14,17 +14,25 @@ import StatsPanel from './components/StatsPanel';
 import Login from './components/Login';
 import Register from './components/Register';
 import ProtectedRoute from './components/ProtectedRoute';
+import TeamManager from './components/TeamManager';
+import TeamBoard from './components/TeamBoard';
+import AcceptInvitation from './components/AcceptInvitation';
 import './App.css';
 
 function TodoApp() {
   const [tasks, setTasks] = useState([]);
+  const [assignedTasks, setAssignedTasks] = useState([]);
+  const [sharedTasks, setSharedTasks] = useState([]);
   const [categories, setCategories] = useState([]);
   const [tags, setTags] = useState([]);
   const [filter, setFilter] = useState('all');
+  const [taskView, setTaskView] = useState('mine');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState(null);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [showTagManager, setShowTagManager] = useState(false);
+  const [showTeamManager, setShowTeamManager] = useState(false);
+  const [showTeamBoard, setShowTeamBoard] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -56,12 +64,38 @@ function TodoApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, categoryFilter, tagFilter]);
 
+  const fetchAssignedTasks = useCallback(async (signal) => {
+    return teamApi.getAssignedTasks(signal);
+  }, []);
+
+  const fetchSharedTasks = useCallback(async (signal) => {
+    return teamApi.getSharedTasks(signal);
+  }, []);
+
+  const refreshAssignedAndShared = useCallback(async () => {
+    try {
+      const [assigned, shared] = await Promise.all([
+        fetchAssignedTasks(),
+        fetchSharedTasks(),
+      ]);
+      setAssignedTasks(assigned || []);
+      setSharedTasks(shared || []);
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('获取分配/共享任务失败:', err);
+      }
+    }
+  }, [fetchAssignedTasks, fetchSharedTasks]);
+
   const refreshTasks = useCallback(async () => {
     tasksAbortControllerRef.current?.abort();
     tasksAbortControllerRef.current = new AbortController();
     try {
       setTasksLoading(true);
-      const tasksData = await fetchTasks(tasksAbortControllerRef.current.signal);
+      const [tasksData] = await Promise.all([
+        fetchTasks(tasksAbortControllerRef.current.signal),
+        refreshAssignedAndShared(),
+      ]);
       if (!tasksAbortControllerRef.current.signal?.aborted) {
         setTasks(tasksData);
       }
@@ -74,7 +108,7 @@ function TodoApp() {
         setTasksLoading(false);
       }
     }
-  }, [fetchTasks]);
+  }, [fetchTasks, refreshAssignedAndShared]);
 
   const checkAndCreateRepeatTasks = useCallback(async () => {
     try {
@@ -103,15 +137,19 @@ function TodoApp() {
       try {
         setInitialLoading(true);
         setError(null);
-        const [tasksData, categoriesData, tagsData] = await Promise.all([
+        const [tasksData, categoriesData, tagsData, assignedData, sharedData] = await Promise.all([
           fetchTasks(initialController.signal),
           categoryApi.getAllCategories(initialController.signal),
           tagApi.getAllTags(initialController.signal),
+          fetchAssignedTasks(initialController.signal).catch(() => []),
+          fetchSharedTasks(initialController.signal).catch(() => []),
         ]);
         if (!initialController.signal?.aborted) {
           setTasks(tasksData);
           setCategories(categoriesData);
           setTags(tagsData);
+          setAssignedTasks(assignedData || []);
+          setSharedTasks(sharedData || []);
         }
         if (!initialController.signal?.aborted) {
           await checkAndCreateRepeatTasks();
@@ -441,6 +479,22 @@ function TodoApp() {
             <div className="user-info">
               <button
                 type="button"
+                className="btn-team-board"
+                onClick={() => setShowTeamBoard(true)}
+                title="团队任务看板"
+              >
+                👥 团队看板
+              </button>
+              <button
+                type="button"
+                className="btn-team-manager"
+                onClick={() => setShowTeamManager(true)}
+                title="团队管理"
+              >
+                🏢 团队管理
+              </button>
+              <button
+                type="button"
                 className="btn-stats"
                 onClick={() => setShowStats(true)}
                 title="查看任务统计"
@@ -514,6 +568,27 @@ function TodoApp() {
         />
 
         <div className="filter-section">
+          <div className="task-view-tabs">
+            <button
+              className={`task-view-btn ${taskView === 'mine' ? 'active' : ''}`}
+              onClick={() => setTaskView('mine')}
+            >
+              📋 我的任务
+            </button>
+            <button
+              className={`task-view-btn ${taskView === 'assigned' ? 'active' : ''}`}
+              onClick={() => setTaskView('assigned')}
+            >
+              📨 分配给我 ({assignedTasks.length})
+            </button>
+            <button
+              className={`task-view-btn ${taskView === 'shared' ? 'active' : ''}`}
+              onClick={() => setTaskView('shared')}
+            >
+              🤝 共享给我 ({sharedTasks.length})
+            </button>
+          </div>
+
           <div className="filter-tabs">
             <button
               className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
@@ -559,7 +634,7 @@ function TodoApp() {
           <div className="loading">加载中...</div>
         ) : (
           <TaskList
-            tasks={tasks}
+            tasks={taskView === 'assigned' ? assignedTasks : taskView === 'shared' ? sharedTasks : tasks}
             onToggle={handleToggleTask}
             onTogglePin={handleTogglePinTask}
             onDelete={handleDeleteTask}
@@ -579,7 +654,7 @@ function TodoApp() {
           />
         )}
 
-        {completedCount > 0 && !initialLoading && (
+        {completedCount > 0 && !initialLoading && taskView === 'mine' && (
           <div className="footer-actions">
             <button className="btn-clear-completed" onClick={handleClearCompleted}>
               清除已完成任务
@@ -592,6 +667,15 @@ function TodoApp() {
             {initialLoading
               ? '正在加载任务列表...'
               : (() => {
+                const currentTasks = taskView === 'assigned' ? assignedTasks : taskView === 'shared' ? sharedTasks : tasks;
+                const currentTotal = currentTasks.length;
+                const currentActive = currentTasks.filter(t => !t.completed).length;
+                if (taskView === 'assigned') {
+                  return currentTotal === 0 ? '暂无分配给你的任务' : `还有 ${currentActive} 个分配给你的任务待完成`;
+                }
+                if (taskView === 'shared') {
+                  return currentTotal === 0 ? '暂无共享给你的任务' : `有 ${currentTotal} 个共享任务`;
+                }
                 const selectedTag = (stats.tagFilter && stats.tagFilter !== 'all' && stats.tagFilter !== 'none')
                   ? tags.find(t => t.id === Number(stats.tagFilter))
                   : null;
@@ -637,6 +721,19 @@ function TodoApp() {
         </footer>
 
         {showStats && <StatsPanel onClose={() => setShowStats(false)} />}
+
+        {showTeamManager && (
+          <TeamManager
+            onClose={() => { setShowTeamManager(false); }}
+          />
+        )}
+
+        {showTeamBoard && (
+          <TeamBoard
+            onClose={() => { setShowTeamBoard(false); }}
+            allTags={tags}
+          />
+        )}
       </div>
     </div>
   );
@@ -648,6 +745,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/invite/:token" element={<AcceptInvitation />} />
         <Route
           path="/"
           element={

@@ -21,6 +21,7 @@ except ImportError:
     HAS_PSYCOPG2 = False
 
 VALID_REPEAT_PATTERNS = ['none', 'daily', 'weekly', 'monthly', 'yearly']
+VALID_TEAM_ROLES = ['admin', 'member']
 
 app = Flask(__name__)
 CORS(app)
@@ -412,6 +413,116 @@ def migrate_db():
             WHERE completed = 1 AND completed_at IS NULL
         ''')
     conn.commit()
+
+    if 'assignee_id' not in columns:
+        cursor.execute('''
+            ALTER TABLE tasks ADD COLUMN assignee_id INTEGER REFERENCES users (id) ON DELETE SET NULL
+        ''')
+        conn.commit()
+
+    if DB_TYPE == 'postgresql':
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS teams (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                created_by INTEGER NOT NULL,
+                invite_token TEXT UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS team_members (
+                id SERIAL PRIMARY KEY,
+                team_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'member',
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(team_id, user_id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS team_invitations (
+                id SERIAL PRIMARY KEY,
+                team_id INTEGER NOT NULL,
+                email TEXT NOT NULL,
+                invited_by INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                token TEXT UNIQUE NOT NULL,
+                expires_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE,
+                FOREIGN KEY (invited_by) REFERENCES users (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_shares (
+                id SERIAL PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                team_id INTEGER,
+                shared_with_user_id INTEGER,
+                can_edit BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE,
+                FOREIGN KEY (shared_with_user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        ''')
+    else:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS teams (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                created_by INTEGER NOT NULL,
+                invite_token TEXT UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS team_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'member',
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(team_id, user_id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS team_invitations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id INTEGER NOT NULL,
+                email TEXT NOT NULL,
+                invited_by INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                token TEXT UNIQUE NOT NULL,
+                expires_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE,
+                FOREIGN KEY (invited_by) REFERENCES users (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_shares (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                team_id INTEGER,
+                shared_with_user_id INTEGER,
+                can_edit BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE,
+                FOREIGN KEY (shared_with_user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        ''')
+    conn.commit()
     
     conn.close()
 
@@ -568,10 +679,94 @@ def init_db():
                 FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS teams (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                created_by INTEGER NOT NULL,
+                invite_token TEXT UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS team_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'member',
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(team_id, user_id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS team_invitations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id INTEGER NOT NULL,
+                email TEXT NOT NULL,
+                invited_by INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                token TEXT UNIQUE NOT NULL,
+                expires_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE,
+                FOREIGN KEY (invited_by) REFERENCES users (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_shares (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                team_id INTEGER,
+                shared_with_user_id INTEGER,
+                can_edit BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE,
+                FOREIGN KEY (shared_with_user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        ''')
     conn.commit()
     conn.close()
     
     migrate_db()
+
+def team_to_dict(team, member_count=0):
+    result = {
+        'id': team['id'],
+        'name': team['name'],
+        'description': team['description'],
+        'created_by': team['created_by'],
+        'invite_token': team['invite_token'],
+        'created_at': team['created_at'],
+        'member_count': member_count
+    }
+    return result
+
+def team_member_to_dict(member, user=None):
+    result = {
+        'id': member['id'],
+        'team_id': member['team_id'],
+        'user_id': member['user_id'],
+        'role': member['role'],
+        'joined_at': member['joined_at']
+    }
+    if user:
+        result['username'] = user['username']
+    return result
+
+def task_share_to_dict(share):
+    return {
+        'id': share['id'],
+        'task_id': share['task_id'],
+        'team_id': share['team_id'],
+        'shared_with_user_id': share['shared_with_user_id'],
+        'can_edit': bool(share['can_edit']),
+        'created_at': share['created_at']
+    }
 
 def token_required(f):
     @wraps(f)
@@ -621,10 +816,12 @@ def tag_to_dict(tag):
         'created_at': tag['created_at']
     }
 
-def task_to_dict(task, category=None, tags=None, attachments=None):
+def task_to_dict(task, category=None, tags=None, attachments=None, assignee=None, creator=None):
     result = {
         'id': task['id'],
+        'user_id': task['user_id'],
         'category_id': task['category_id'],
+        'assignee_id': task['assignee_id'] if 'assignee_id' in task.keys() else None,
         'title': task['title'],
         'description': task['description'],
         'priority': task['priority'],
@@ -643,6 +840,10 @@ def task_to_dict(task, category=None, tags=None, attachments=None):
         result['tags'] = [tag_to_dict(tag) for tag in tags]
     if attachments is not None:
         result['attachments'] = [attachment_to_dict(att) for att in attachments]
+    if assignee:
+        result['assignee'] = user_to_dict(assignee)
+    if creator:
+        result['creator'] = user_to_dict(creator)
     return result
 
 @app.route('/api/auth/register', methods=['POST'])
@@ -902,6 +1103,10 @@ def create_task(current_user_id):
     is_pinned = data.get('is_pinned', False)
     repeat_pattern = validate_repeat_pattern(data.get('repeat_pattern', 'none'))
     tag_ids = data.get('tag_ids', [])
+    assignee_id = data.get('assignee_id')
+    share_team_id = data.get('share_team_id')
+    share_with_user_ids = data.get('share_with_user_ids', [])
+    share_can_edit = data.get('share_can_edit', False)
     
     if priority not in ['high', 'medium', 'low']:
         priority = 'medium'
@@ -915,6 +1120,15 @@ def create_task(current_user_id):
         if not category:
             return jsonify({'error': '分类不存在'}), 404
     
+    if assignee_id is not None:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM users WHERE id = ?', (assignee_id,))
+        user = cursor.fetchone()
+        conn.close()
+        if not user:
+            return jsonify({'error': '被分配用户不存在'}), 404
+    
     conn = get_db()
     cursor = conn.cursor()
     
@@ -925,9 +1139,26 @@ def create_task(current_user_id):
             conn.close()
             return jsonify({'error': f'标签 ID {tag_id} 不存在'}), 404
     
+    if share_team_id is not None:
+        cursor.execute('''
+            SELECT tm.* FROM team_members tm
+            WHERE tm.team_id = ? AND tm.user_id = ?
+        ''', (share_team_id, current_user_id))
+        team_member = cursor.fetchone()
+        if team_member is None:
+            conn.close()
+            return jsonify({'error': '您不是该团队成员，无法与该团队共享'}), 403
+    
+    for shared_uid in share_with_user_ids:
+        cursor.execute('SELECT * FROM users WHERE id = ?', (shared_uid,))
+        target_user = cursor.fetchone()
+        if target_user is None:
+            conn.close()
+            return jsonify({'error': f'目标用户 ID {shared_uid} 不存在'}), 404
+    
     cursor.execute(
-        'INSERT INTO tasks (user_id, category_id, title, description, priority, due_date, is_pinned, repeat_pattern) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        (current_user_id, category_id, title, description, priority, due_date, is_pinned, repeat_pattern)
+        'INSERT INTO tasks (user_id, category_id, title, description, priority, due_date, is_pinned, repeat_pattern, assignee_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        (current_user_id, category_id, title, description, priority, due_date, is_pinned, repeat_pattern, assignee_id)
     )
     conn.commit()
     task_id = cursor.lastrowid
@@ -936,6 +1167,20 @@ def create_task(current_user_id):
         cursor.execute(
             'INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?, ?)',
             (task_id, tag_id)
+        )
+    conn.commit()
+    
+    if share_team_id is not None:
+        cursor.execute(
+            'INSERT INTO task_shares (task_id, team_id, can_edit) VALUES (?, ?, ?)',
+            (task_id, share_team_id, 1 if share_can_edit else 0)
+        )
+        conn.commit()
+    
+    for shared_uid in share_with_user_ids:
+        cursor.execute(
+            'INSERT INTO task_shares (task_id, shared_with_user_id, can_edit) VALUES (?, ?, ?)',
+            (task_id, shared_uid, 1 if share_can_edit else 0)
         )
     conn.commit()
     
@@ -960,8 +1205,16 @@ def create_task(current_user_id):
     ''', (task['id'],))
     attachments = cursor.fetchall()
     
+    assignee = None
+    if task['assignee_id']:
+        cursor.execute('SELECT * FROM users WHERE id = ?', (task['assignee_id'],))
+        assignee = cursor.fetchone()
+    
+    cursor.execute('SELECT * FROM users WHERE id = ?', (current_user_id,))
+    creator = cursor.fetchone()
+    
     conn.close()
-    return jsonify(task_to_dict(task, category, tags, attachments)), 201
+    return jsonify(task_to_dict(task, category, tags, attachments, assignee, creator)), 201
 
 @app.route('/api/tasks/<int:task_id>', methods=['PUT'])
 @token_required
@@ -970,9 +1223,22 @@ def update_task(current_user_id, task_id):
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, current_user_id))
     task = cursor.fetchone()
+    
     if task is None:
-        conn.close()
-        return jsonify({'error': '任务不存在'}), 404
+        cursor.execute('''
+            SELECT t.* FROM tasks t
+            INNER JOIN task_shares ts ON t.id = ts.task_id
+            WHERE t.id = ? AND ts.shared_with_user_id = ? AND ts.can_edit = 1
+        ''', (task_id, current_user_id))
+        editable_shared = cursor.fetchone()
+        
+        cursor.execute('SELECT * FROM tasks WHERE id = ? AND assignee_id = ?', (task_id, current_user_id))
+        assigned_task = cursor.fetchone()
+        
+        task = editable_shared or assigned_task
+        if task is None:
+            conn.close()
+            return jsonify({'error': '任务不存在或您无权限编辑'}), 404
     
     data = request.get_json()
     title = data.get('title', task['title'])
@@ -982,6 +1248,7 @@ def update_task(current_user_id, task_id):
     priority = data.get('priority', task['priority'])
     is_pinned = data.get('is_pinned', task['is_pinned'])
     repeat_pattern = validate_repeat_pattern(data.get('repeat_pattern', task['repeat_pattern'] or 'none'))
+    assignee_id = data.get('assignee_id', task['assignee_id'] if 'assignee_id' in task.keys() else None)
     
     if 'due_date' in data:
         due_date = format_due_date(data['due_date'])
@@ -992,11 +1259,18 @@ def update_task(current_user_id, task_id):
         priority = task['priority'] or 'medium'
     
     if category_id is not None and category_id != task['category_id']:
-        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (category_id, current_user_id))
+        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (category_id, task['user_id']))
         category = cursor.fetchone()
         if not category:
             conn.close()
             return jsonify({'error': '分类不存在'}), 404
+    
+    if assignee_id is not None and assignee_id != (task['assignee_id'] if 'assignee_id' in task.keys() else None):
+        cursor.execute('SELECT * FROM users WHERE id = ?', (assignee_id,))
+        user = cursor.fetchone()
+        if not user:
+            conn.close()
+            return jsonify({'error': '被分配用户不存在'}), 404
     
     old_completed = bool(task['completed'])
     new_completed = bool(completed)
@@ -1008,8 +1282,8 @@ def update_task(current_user_id, task_id):
         completed_at_val = task['completed_at']
     
     cursor.execute(
-        'UPDATE tasks SET title = ?, description = ?, completed = ?, completed_at = ?, category_id = ?, priority = ?, due_date = ?, is_pinned = ?, repeat_pattern = ?, updated_at = ? WHERE id = ?',
-        (title, description, completed, completed_at_val, category_id, priority, due_date, is_pinned, repeat_pattern, format_datetime(datetime.now()), task_id)
+        'UPDATE tasks SET title = ?, description = ?, completed = ?, completed_at = ?, category_id = ?, priority = ?, due_date = ?, is_pinned = ?, repeat_pattern = ?, updated_at = ?, assignee_id = ? WHERE id = ?',
+        (title, description, completed, completed_at_val, category_id, priority, due_date, is_pinned, repeat_pattern, format_datetime(datetime.now()), assignee_id, task_id)
     )
     conn.commit()
     cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
@@ -1017,7 +1291,7 @@ def update_task(current_user_id, task_id):
     
     category = None
     if updated_task['category_id']:
-        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (updated_task['category_id'], current_user_id))
+        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (updated_task['category_id'], updated_task['user_id']))
         category = cursor.fetchone()
     
     cursor.execute('''
@@ -1025,7 +1299,7 @@ def update_task(current_user_id, task_id):
         INNER JOIN task_tags tt ON t.id = tt.tag_id
         WHERE tt.task_id = ? AND t.user_id = ?
         ORDER BY t.created_at ASC
-    ''', (updated_task['id'], current_user_id))
+    ''', (updated_task['id'], updated_task['user_id']))
     tags = cursor.fetchall()
     
     cursor.execute('''
@@ -1033,8 +1307,16 @@ def update_task(current_user_id, task_id):
     ''', (updated_task['id'],))
     attachments = cursor.fetchall()
     
+    assignee = None
+    if updated_task['assignee_id']:
+        cursor.execute('SELECT * FROM users WHERE id = ?', (updated_task['assignee_id'],))
+        assignee = cursor.fetchone()
+    
+    cursor.execute('SELECT * FROM users WHERE id = ?', (updated_task['user_id'],))
+    creator = cursor.fetchone()
+    
     conn.close()
-    return jsonify(task_to_dict(updated_task, category, tags, attachments))
+    return jsonify(task_to_dict(updated_task, category, tags, attachments, assignee, creator))
 
 @app.route('/api/tasks/<int:task_id>/toggle', methods=['PUT'])
 @token_required
@@ -1816,6 +2098,739 @@ def get_stats(current_user_id):
 @app.route('/uploads/<path:filename>')
 def serve_upload(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route('/api/teams', methods=['GET'])
+@token_required
+def get_teams(current_user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT t.*, COUNT(tm.id) as member_count FROM teams t
+        INNER JOIN team_members tm ON t.id = tm.team_id
+        WHERE tm.user_id = ?
+        GROUP BY t.id
+        ORDER BY t.created_at DESC
+    ''', (current_user_id,))
+    teams = cursor.fetchall()
+    conn.close()
+    return jsonify([team_to_dict(team, team['member_count']) for team in teams])
+
+@app.route('/api/teams', methods=['POST'])
+@token_required
+def create_team(current_user_id):
+    data = request.get_json()
+    if not data or 'name' not in data:
+        return jsonify({'error': '团队名称不能为空'}), 400
+    
+    name = data['name'].strip()
+    description = data.get('description', '').strip()
+    
+    if not name:
+        return jsonify({'error': '团队名称不能为空'}), 400
+    
+    invite_token = uuid.uuid4().hex
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        'INSERT INTO teams (name, description, created_by, invite_token) VALUES (?, ?, ?, ?)',
+        (name, description, current_user_id, invite_token)
+    )
+    team_id = cursor.lastrowid
+    
+    cursor.execute(
+        'INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, ?)',
+        (team_id, current_user_id, 'admin')
+    )
+    conn.commit()
+    
+    cursor.execute('SELECT * FROM teams WHERE id = ?', (team_id,))
+    team = cursor.fetchone()
+    conn.close()
+    
+    return jsonify(team_to_dict(team, 1)), 201
+
+@app.route('/api/teams/<int:team_id>', methods=['GET'])
+@token_required
+def get_team(current_user_id, team_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT t.* FROM teams t
+        INNER JOIN team_members tm ON t.id = tm.team_id
+        WHERE t.id = ? AND tm.user_id = ?
+    ''', (team_id, current_user_id))
+    team = cursor.fetchone()
+    
+    if team is None:
+        conn.close()
+        return jsonify({'error': '团队不存在或您不是该团队成员'}), 404
+    
+    cursor.execute('SELECT COUNT(*) as cnt FROM team_members WHERE team_id = ?', (team_id,))
+    member_count = cursor.fetchone()['cnt']
+    
+    conn.close()
+    return jsonify(team_to_dict(team, member_count))
+
+@app.route('/api/teams/<int:team_id>', methods=['PUT'])
+@token_required
+def update_team(current_user_id, team_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT tm.* FROM team_members tm
+        WHERE tm.team_id = ? AND tm.user_id = ? AND tm.role = ?
+    ''', (team_id, current_user_id, 'admin'))
+    membership = cursor.fetchone()
+    
+    if membership is None:
+        conn.close()
+        return jsonify({'error': '只有管理员可以修改团队信息'}), 403
+    
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    description = data.get('description', '')
+    
+    if not name:
+        conn.close()
+        return jsonify({'error': '团队名称不能为空'}), 400
+    
+    cursor.execute(
+        'UPDATE teams SET name = ?, description = ? WHERE id = ?',
+        (name, description, team_id)
+    )
+    conn.commit()
+    
+    cursor.execute('SELECT * FROM teams WHERE id = ?', (team_id,))
+    team = cursor.fetchone()
+    
+    cursor.execute('SELECT COUNT(*) as cnt FROM team_members WHERE team_id = ?', (team_id,))
+    member_count = cursor.fetchone()['cnt']
+    
+    conn.close()
+    return jsonify(team_to_dict(team, member_count))
+
+@app.route('/api/teams/<int:team_id>', methods=['DELETE'])
+@token_required
+def delete_team(current_user_id, team_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT tm.* FROM team_members tm
+        WHERE tm.team_id = ? AND tm.user_id = ? AND tm.role = ?
+    ''', (team_id, current_user_id, 'admin'))
+    membership = cursor.fetchone()
+    
+    if membership is None:
+        conn.close()
+        return jsonify({'error': '只有管理员可以删除团队'}), 403
+    
+    cursor.execute('DELETE FROM teams WHERE id = ?', (team_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '团队已删除'})
+
+@app.route('/api/teams/<int:team_id>/regenerate-token', methods=['POST'])
+@token_required
+def regenerate_invite_token(current_user_id, team_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT tm.* FROM team_members tm
+        WHERE tm.team_id = ? AND tm.user_id = ? AND tm.role = ?
+    ''', (team_id, current_user_id, 'admin'))
+    membership = cursor.fetchone()
+    
+    if membership is None:
+        conn.close()
+        return jsonify({'error': '只有管理员可以重新生成邀请链接'}), 403
+    
+    new_token = uuid.uuid4().hex
+    cursor.execute('UPDATE teams SET invite_token = ? WHERE id = ?', (new_token, team_id))
+    conn.commit()
+    
+    cursor.execute('SELECT * FROM teams WHERE id = ?', (team_id,))
+    team = cursor.fetchone()
+    
+    cursor.execute('SELECT COUNT(*) as cnt FROM team_members WHERE team_id = ?', (team_id,))
+    member_count = cursor.fetchone()['cnt']
+    
+    conn.close()
+    return jsonify(team_to_dict(team, member_count))
+
+@app.route('/api/teams/<int:team_id>/members', methods=['GET'])
+@token_required
+def get_team_members(current_user_id, team_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT tm.* FROM team_members tm
+        WHERE tm.team_id = ? AND tm.team_id IN (
+            SELECT team_id FROM team_members WHERE user_id = ?
+        )
+    ''', (team_id, current_user_id))
+    members = cursor.fetchall()
+    
+    result = []
+    for member in members:
+        cursor.execute('SELECT * FROM users WHERE id = ?', (member['user_id'],))
+        user = cursor.fetchone()
+        result.append(team_member_to_dict(member, user))
+    
+    conn.close()
+    return jsonify(result)
+
+@app.route('/api/teams/<int:team_id>/members/<int:member_user_id>', methods=['PUT'])
+@token_required
+def update_team_member_role(current_user_id, team_id, member_user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT tm.* FROM team_members tm
+        WHERE tm.team_id = ? AND tm.user_id = ? AND tm.role = ?
+    ''', (team_id, current_user_id, 'admin'))
+    admin_membership = cursor.fetchone()
+    
+    if admin_membership is None:
+        conn.close()
+        return jsonify({'error': '只有管理员可以修改成员角色'}), 403
+    
+    data = request.get_json()
+    role = data.get('role', 'member')
+    
+    if role not in VALID_TEAM_ROLES:
+        conn.close()
+        return jsonify({'error': '无效的角色'}), 400
+    
+    cursor.execute('''
+        SELECT tm.* FROM team_members tm
+        WHERE tm.team_id = ? AND tm.user_id = ?
+    ''', (team_id, member_user_id))
+    member = cursor.fetchone()
+    
+    if member is None:
+        conn.close()
+        return jsonify({'error': '该用户不是团队成员'}), 404
+    
+    cursor.execute(
+        'UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ?',
+        (role, team_id, member_user_id)
+    )
+    conn.commit()
+    
+    cursor.execute('''
+        SELECT tm.* FROM team_members tm
+        WHERE tm.team_id = ? AND tm.user_id = ?
+    ''', (team_id, member_user_id))
+    updated_member = cursor.fetchone()
+    
+    cursor.execute('SELECT * FROM users WHERE id = ?', (member_user_id,))
+    user = cursor.fetchone()
+    
+    conn.close()
+    return jsonify(team_member_to_dict(updated_member, user))
+
+@app.route('/api/teams/<int:team_id>/members/<int:member_user_id>', methods=['DELETE'])
+@token_required
+def remove_team_member(current_user_id, team_id, member_user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT tm.* FROM team_members tm
+        WHERE tm.team_id = ? AND tm.user_id = ?
+    ''', (team_id, current_user_id))
+    current_membership = cursor.fetchone()
+    
+    if current_membership is None:
+        conn.close()
+        return jsonify({'error': '您不是该团队成员'}), 403
+    
+    is_admin = current_membership['role'] == 'admin'
+    is_self = member_user_id == current_user_id
+    
+    if not is_admin and not is_self:
+        conn.close()
+        return jsonify({'error': '只有管理员可以移除其他成员'}), 403
+    
+    if is_admin and not is_self:
+        cursor.execute('''
+            SELECT tm.* FROM team_members tm
+            WHERE tm.team_id = ? AND tm.user_id = ?
+        ''', (team_id, member_user_id))
+        target_member = cursor.fetchone()
+        if target_member and target_member['role'] == 'admin':
+            cursor.execute('SELECT COUNT(*) as cnt FROM team_members WHERE team_id = ? AND role = ?', (team_id, 'admin'))
+            admin_count = cursor.fetchone()['cnt']
+            if admin_count <= 1:
+                conn.close()
+                return jsonify({'error': '至少需要保留一名管理员'}), 400
+    
+    cursor.execute('DELETE FROM team_members WHERE team_id = ? AND user_id = ?', (team_id, member_user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '成员已移除'})
+
+@app.route('/api/teams/<int:team_id>/invitations', methods=['POST'])
+@token_required
+def create_invitation(current_user_id, team_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT tm.* FROM team_members tm
+        WHERE tm.team_id = ? AND tm.user_id = ? AND tm.role = ?
+    ''', (team_id, current_user_id, 'admin'))
+    admin_membership = cursor.fetchone()
+    
+    if admin_membership is None:
+        conn.close()
+        return jsonify({'error': '只有管理员可以发送邀请'}), 403
+    
+    data = request.get_json()
+    email = data.get('email', '').strip()
+    
+    if not email:
+        conn.close()
+        return jsonify({'error': '邮箱不能为空'}), 400
+    
+    invite_token = uuid.uuid4().hex
+    expires_at = format_datetime(datetime.now() + timedelta(days=7))
+    
+    cursor.execute(
+        'INSERT INTO team_invitations (team_id, email, invited_by, token, expires_at) VALUES (?, ?, ?, ?, ?)',
+        (team_id, email, current_user_id, invite_token, expires_at)
+    )
+    conn.commit()
+    
+    invitation_id = cursor.lastrowid
+    cursor.execute('SELECT * FROM team_invitations WHERE id = ?', (invitation_id,))
+    invitation = cursor.fetchone()
+    
+    conn.close()
+    return jsonify({
+        'id': invitation['id'],
+        'team_id': invitation['team_id'],
+        'email': invitation['email'],
+        'token': invitation['token'],
+        'expires_at': invitation['expires_at'],
+        'created_at': invitation['created_at']
+    }), 201
+
+@app.route('/api/invitations/<token>', methods=['GET'])
+def get_invitation(token):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT ti.*, t.name as team_name FROM team_invitations ti
+        INNER JOIN teams t ON ti.team_id = t.id
+        WHERE ti.token = ?
+    ''', (token,))
+    invitation = cursor.fetchone()
+    
+    if invitation is None:
+        conn.close()
+        return jsonify({'error': '邀请链接无效'}), 404
+    
+    if invitation['status'] != 'pending':
+        conn.close()
+        return jsonify({'error': '该邀请已被使用或已过期'}), 400
+    
+    expires_at = parse_datetime(invitation['expires_at'])
+    if expires_at and expires_at < datetime.now():
+        conn.close()
+        return jsonify({'error': '该邀请已过期'}), 400
+    
+    conn.close()
+    return jsonify({
+        'team_id': invitation['team_id'],
+        'team_name': invitation['team_name'],
+        'email': invitation['email'],
+        'expires_at': invitation['expires_at']
+    })
+
+@app.route('/api/invitations/<token>/accept', methods=['POST'])
+@token_required
+def accept_invitation(current_user_id, token):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT * FROM team_invitations WHERE token = ?', (token,))
+    invitation = cursor.fetchone()
+    
+    if invitation is None:
+        conn.close()
+        return jsonify({'error': '邀请链接无效'}), 404
+    
+    if invitation['status'] != 'pending':
+        conn.close()
+        return jsonify({'error': '该邀请已被使用或已过期'}), 400
+    
+    expires_at = parse_datetime(invitation['expires_at'])
+    if expires_at and expires_at < datetime.now():
+        conn.close()
+        return jsonify({'error': '该邀请已过期'}), 400
+    
+    cursor.execute('''
+        SELECT * FROM team_members WHERE team_id = ? AND user_id = ?
+    ''', (invitation['team_id'], current_user_id))
+    existing_member = cursor.fetchone()
+    
+    if existing_member:
+        cursor.execute('UPDATE team_invitations SET status = ? WHERE id = ?', ('accepted', invitation['id']))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': '您已经是该团队成员'})
+    
+    cursor.execute(
+        'INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, ?)',
+        (invitation['team_id'], current_user_id, 'member')
+    )
+    cursor.execute('UPDATE team_invitations SET status = ? WHERE id = ?', ('accepted', invitation['id']))
+    conn.commit()
+    
+    cursor.execute('SELECT * FROM teams WHERE id = ?', (invitation['team_id'],))
+    team = cursor.fetchone()
+    
+    cursor.execute('SELECT COUNT(*) as cnt FROM team_members WHERE team_id = ?', (invitation['team_id'],))
+    member_count = cursor.fetchone()['cnt']
+    
+    conn.close()
+    return jsonify(team_to_dict(team, member_count))
+
+@app.route('/api/teams/join/<invite_token>', methods=['POST'])
+@token_required
+def join_team_by_token(current_user_id, invite_token):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT * FROM teams WHERE invite_token = ?', (invite_token,))
+    team = cursor.fetchone()
+    
+    if team is None:
+        conn.close()
+        return jsonify({'error': '邀请链接无效'}), 404
+    
+    cursor.execute('''
+        SELECT * FROM team_members WHERE team_id = ? AND user_id = ?
+    ''', (team['id'], current_user_id))
+    existing_member = cursor.fetchone()
+    
+    if existing_member:
+        conn.close()
+        return jsonify({'message': '您已经是该团队成员'})
+    
+    cursor.execute(
+        'INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, ?)',
+        (team['id'], current_user_id, 'member')
+    )
+    conn.commit()
+    
+    cursor.execute('SELECT COUNT(*) as cnt FROM team_members WHERE team_id = ?', (team['id'],))
+    member_count = cursor.fetchone()['cnt']
+    
+    conn.close()
+    return jsonify(team_to_dict(team, member_count))
+
+@app.route('/api/tasks/<int:task_id>/shares', methods=['GET'])
+@token_required
+def get_task_shares(current_user_id, task_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, current_user_id))
+    task = cursor.fetchone()
+    
+    if task is None:
+        cursor.execute('''
+            SELECT ts.* FROM task_shares ts
+            INNER JOIN tasks t ON ts.task_id = t.id
+            WHERE ts.task_id = ? AND ts.shared_with_user_id = ? AND ts.can_edit = 1
+        ''', (task_id, current_user_id))
+        share = cursor.fetchone()
+        if share is None:
+            conn.close()
+            return jsonify({'error': '任务不存在或您无权限'}), 404
+    
+    cursor.execute('''
+        SELECT ts.*, u.username as shared_username, t.name as team_name
+        FROM task_shares ts
+        LEFT JOIN users u ON ts.shared_with_user_id = u.id
+        LEFT JOIN teams t ON ts.team_id = t.id
+        WHERE ts.task_id = ?
+    ''', (task_id,))
+    shares = cursor.fetchall()
+    
+    result = []
+    for share in shares:
+        share_dict = task_share_to_dict(share)
+        if share['shared_username']:
+            share_dict['shared_with_username'] = share['shared_username']
+        if share['team_name']:
+            share_dict['team_name'] = share['team_name']
+        result.append(share_dict)
+    
+    conn.close()
+    return jsonify(result)
+
+@app.route('/api/tasks/<int:task_id>/shares', methods=['POST'])
+@token_required
+def create_task_share(current_user_id, task_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, current_user_id))
+    task = cursor.fetchone()
+    
+    if task is None:
+        conn.close()
+        return jsonify({'error': '任务不存在或您不是创建者'}), 404
+    
+    data = request.get_json()
+    team_id = data.get('team_id')
+    shared_with_user_id = data.get('shared_with_user_id')
+    can_edit = data.get('can_edit', False)
+    
+    if team_id is None and shared_with_user_id is None:
+        conn.close()
+        return jsonify({'error': '必须指定团队或用户'}), 400
+    
+    if team_id is not None:
+        cursor.execute('''
+            SELECT tm.* FROM team_members tm
+            WHERE tm.team_id = ? AND tm.user_id = ?
+        ''', (team_id, current_user_id))
+        team_member = cursor.fetchone()
+        if team_member is None:
+            conn.close()
+            return jsonify({'error': '您不是该团队成员'}), 403
+    
+    if shared_with_user_id is not None:
+        cursor.execute('SELECT * FROM users WHERE id = ?', (shared_with_user_id,))
+        target_user = cursor.fetchone()
+        if target_user is None:
+            conn.close()
+            return jsonify({'error': '目标用户不存在'}), 404
+    
+    cursor.execute(
+        'INSERT INTO task_shares (task_id, team_id, shared_with_user_id, can_edit) VALUES (?, ?, ?, ?)',
+        (task_id, team_id, shared_with_user_id, 1 if can_edit else 0)
+    )
+    conn.commit()
+    share_id = cursor.lastrowid
+    
+    cursor.execute('SELECT * FROM task_shares WHERE id = ?', (share_id,))
+    share = cursor.fetchone()
+    
+    conn.close()
+    return jsonify(task_share_to_dict(share)), 201
+
+@app.route('/api/tasks/shares/<int:share_id>', methods=['DELETE'])
+@token_required
+def delete_task_share(current_user_id, share_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT ts.* FROM task_shares ts
+        INNER JOIN tasks t ON ts.task_id = t.id
+        WHERE ts.id = ? AND t.user_id = ?
+    ''', (share_id, current_user_id))
+    share = cursor.fetchone()
+    
+    if share is None:
+        conn.close()
+        return jsonify({'error': '共享不存在或您无权限删除'}), 404
+    
+    cursor.execute('DELETE FROM task_shares WHERE id = ?', (share_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '共享已删除'})
+
+@app.route('/api/tasks/assigned', methods=['GET'])
+@token_required
+def get_assigned_tasks(current_user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT DISTINCT t.* FROM tasks t
+        WHERE t.assignee_id = ?
+        ORDER BY t.is_pinned DESC, t.created_at DESC
+    ''', (current_user_id,))
+    tasks = cursor.fetchall()
+    
+    result = []
+    for task in tasks:
+        category = None
+        if task['category_id']:
+            cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (task['category_id'], task['user_id']))
+            category = cursor.fetchone()
+        cursor.execute('''
+            SELECT t.* FROM tags t
+            INNER JOIN task_tags tt ON t.id = tt.tag_id
+            WHERE tt.task_id = ? AND t.user_id = ?
+            ORDER BY t.created_at ASC
+        ''', (task['id'], task['user_id']))
+        tags = cursor.fetchall()
+        cursor.execute('''
+            SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC
+        ''', (task['id'],))
+        attachments = cursor.fetchall()
+        
+        cursor.execute('SELECT * FROM users WHERE id = ?', (task['user_id'],))
+        creator = cursor.fetchone()
+        
+        result.append(task_to_dict(task, category, tags, attachments, None, creator))
+    
+    conn.close()
+    return jsonify(result)
+
+@app.route('/api/tasks/shared', methods=['GET'])
+@token_required
+def get_shared_tasks(current_user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT DISTINCT t.* FROM tasks t
+        INNER JOIN task_shares ts ON t.id = ts.task_id
+        LEFT JOIN team_members tm ON ts.team_id = tm.team_id AND tm.user_id = ?
+        WHERE (ts.shared_with_user_id = ? OR tm.user_id IS NOT NULL)
+        AND t.user_id != ?
+        ORDER BY t.is_pinned DESC, t.created_at DESC
+    ''', (current_user_id, current_user_id, current_user_id))
+    tasks = cursor.fetchall()
+    
+    result = []
+    for task in tasks:
+        category = None
+        if task['category_id']:
+            cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (task['category_id'], task['user_id']))
+            category = cursor.fetchone()
+        cursor.execute('''
+            SELECT t.* FROM tags t
+            INNER JOIN task_tags tt ON t.id = tt.tag_id
+            WHERE tt.task_id = ? AND t.user_id = ?
+            ORDER BY t.created_at ASC
+        ''', (task['id'], task['user_id']))
+        tags = cursor.fetchall()
+        cursor.execute('''
+            SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC
+        ''', (task['id'],))
+        attachments = cursor.fetchall()
+        
+        cursor.execute('SELECT * FROM users WHERE id = ?', (task['user_id'],))
+        creator = cursor.fetchone()
+        
+        assignee = None
+        if task['assignee_id']:
+            cursor.execute('SELECT * FROM users WHERE id = ?', (task['assignee_id'],))
+            assignee = cursor.fetchone()
+        
+        result.append(task_to_dict(task, category, tags, attachments, assignee, creator))
+    
+    conn.close()
+    return jsonify(result)
+
+@app.route('/api/teams/<int:team_id>/tasks', methods=['GET'])
+@token_required
+def get_team_tasks(current_user_id, team_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT tm.* FROM team_members tm
+        WHERE tm.team_id = ? AND tm.user_id = ?
+    ''', (team_id, current_user_id))
+    membership = cursor.fetchone()
+    
+    if membership is None:
+        conn.close()
+        return jsonify({'error': '您不是该团队成员'}), 403
+    
+    cursor.execute('''
+        SELECT DISTINCT t.* FROM tasks t
+        INNER JOIN task_shares ts ON t.id = ts.task_id
+        WHERE ts.team_id = ?
+        UNION
+        SELECT DISTINCT t.* FROM tasks t
+        WHERE t.user_id IN (SELECT user_id FROM team_members WHERE team_id = ?)
+        ORDER BY is_pinned DESC, created_at DESC
+    ''', (team_id, team_id))
+    tasks = cursor.fetchall()
+    
+    result = []
+    for task in tasks:
+        category = None
+        if task['category_id']:
+            cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (task['category_id'], task['user_id']))
+            category = cursor.fetchone()
+        cursor.execute('''
+            SELECT t.* FROM tags t
+            INNER JOIN task_tags tt ON t.id = tt.tag_id
+            WHERE tt.task_id = ? AND t.user_id = ?
+            ORDER BY t.created_at ASC
+        ''', (task['id'], task['user_id']))
+        tags = cursor.fetchall()
+        cursor.execute('''
+            SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC
+        ''', (task['id'],))
+        attachments = cursor.fetchall()
+        
+        cursor.execute('SELECT * FROM users WHERE id = ?', (task['user_id'],))
+        creator = cursor.fetchone()
+        
+        assignee = None
+        if task['assignee_id']:
+            cursor.execute('SELECT * FROM users WHERE id = ?', (task['assignee_id'],))
+            assignee = cursor.fetchone()
+        
+        result.append(task_to_dict(task, category, tags, attachments, assignee, creator))
+    
+    conn.close()
+    return jsonify(result)
+
+@app.route('/api/teams/<int:team_id>/users', methods=['GET'])
+@token_required
+def get_team_users(current_user_id, team_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT tm.* FROM team_members tm
+        WHERE tm.team_id = ? AND tm.user_id = ?
+    ''', (team_id, current_user_id))
+    membership = cursor.fetchone()
+    
+    if membership is None:
+        conn.close()
+        return jsonify({'error': '您不是该团队成员'}), 403
+    
+    cursor.execute('''
+        SELECT u.id, u.username, u.created_at, tm.role
+        FROM users u
+        INNER JOIN team_members tm ON u.id = tm.user_id
+        WHERE tm.team_id = ?
+        ORDER BY u.username ASC
+    ''', (team_id,))
+    users = cursor.fetchall()
+    
+    conn.close()
+    return jsonify([{
+        'id': user['id'],
+        'username': user['username'],
+        'created_at': user['created_at'],
+        'role': user['role']
+    } for user in users])
 
 
 def wait_for_db():
