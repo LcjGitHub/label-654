@@ -148,6 +148,14 @@ export const taskApi = {
     return handleResponse(response);
   },
 
+  async togglePinTask(id) {
+    const response = await fetch(`${API_BASE_URL}/tasks/${id}/pin`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+
   async deleteTask(id) {
     const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
       method: 'DELETE',

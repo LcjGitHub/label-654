@@ -62,6 +62,12 @@ def migrate_db():
         ''')
         conn.commit()
     
+    if 'is_pinned' not in columns:
+        cursor.execute('''
+            ALTER TABLE tasks ADD COLUMN is_pinned BOOLEAN DEFAULT 0
+        ''')
+        conn.commit()
+    
     conn.close()
 
 def init_db():
@@ -96,6 +102,7 @@ def init_db():
             priority TEXT DEFAULT 'medium',
             due_date TIMESTAMP,
             completed BOOLEAN DEFAULT 0,
+            is_pinned BOOLEAN DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
@@ -182,6 +189,7 @@ def task_to_dict(task, category=None, tags=None):
         'priority': task['priority'],
         'due_date': task['due_date'],
         'completed': bool(task['completed']),
+        'is_pinned': bool(task['is_pinned']),
         'created_at': task['created_at'],
         'updated_at': task['updated_at']
     }
@@ -325,7 +333,7 @@ def get_tasks(current_user_id):
     query = f'''
         SELECT DISTINCT t.* FROM tasks t
         WHERE {where_sql}
-        ORDER BY t.created_at DESC
+        ORDER BY t.is_pinned DESC, t.created_at DESC
     '''
     cursor.execute(query, params)
     
@@ -388,6 +396,7 @@ def create_task(current_user_id):
     category_id = data.get('category_id')
     priority = data.get('priority', 'medium')
     due_date = format_due_date(data.get('due_date'))
+    is_pinned = data.get('is_pinned', False)
     tag_ids = data.get('tag_ids', [])
     
     if priority not in ['high', 'medium', 'low']:
@@ -413,8 +422,8 @@ def create_task(current_user_id):
             return jsonify({'error': f'标签 ID {tag_id} 不存在'}), 404
     
     cursor.execute(
-        'INSERT INTO tasks (user_id, category_id, title, description, priority, due_date) VALUES (?, ?, ?, ?, ?, ?)',
-        (current_user_id, category_id, title, description, priority, due_date)
+        'INSERT INTO tasks (user_id, category_id, title, description, priority, due_date, is_pinned) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (current_user_id, category_id, title, description, priority, due_date, is_pinned)
     )
     conn.commit()
     task_id = cursor.lastrowid
@@ -462,6 +471,7 @@ def update_task(current_user_id, task_id):
     completed = data.get('completed', task['completed'])
     category_id = data.get('category_id', task['category_id'])
     priority = data.get('priority', task['priority'])
+    is_pinned = data.get('is_pinned', task['is_pinned'])
     
     if 'due_date' in data:
         due_date = format_due_date(data['due_date'])
@@ -479,8 +489,8 @@ def update_task(current_user_id, task_id):
             return jsonify({'error': '分类不存在'}), 404
     
     cursor.execute(
-        'UPDATE tasks SET title = ?, description = ?, completed = ?, category_id = ?, priority = ?, due_date = ?, updated_at = ? WHERE id = ?',
-        (title, description, completed, category_id, priority, due_date, format_datetime(datetime.now()), task_id)
+        'UPDATE tasks SET title = ?, description = ?, completed = ?, category_id = ?, priority = ?, due_date = ?, is_pinned = ?, updated_at = ? WHERE id = ?',
+        (title, description, completed, category_id, priority, due_date, is_pinned, format_datetime(datetime.now()), task_id)
     )
     conn.commit()
     cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
@@ -517,6 +527,42 @@ def toggle_task(current_user_id, task_id):
     cursor.execute(
         'UPDATE tasks SET completed = ?, updated_at = ? WHERE id = ?',
         (new_completed, format_datetime(datetime.now()), task_id)
+    )
+    conn.commit()
+    cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
+    updated_task = cursor.fetchone()
+    
+    category = None
+    if updated_task['category_id']:
+        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (updated_task['category_id'], current_user_id))
+        category = cursor.fetchone()
+    
+    cursor.execute('''
+        SELECT t.* FROM tags t
+        INNER JOIN task_tags tt ON t.id = tt.tag_id
+        WHERE tt.task_id = ? AND t.user_id = ?
+        ORDER BY t.created_at ASC
+    ''', (updated_task['id'], current_user_id))
+    tags = cursor.fetchall()
+    
+    conn.close()
+    return jsonify(task_to_dict(updated_task, category, tags))
+
+@app.route('/api/tasks/<int:task_id>/pin', methods=['PUT'])
+@token_required
+def toggle_pin_task(current_user_id, task_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, current_user_id))
+    task = cursor.fetchone()
+    if task is None:
+        conn.close()
+        return jsonify({'error': '任务不存在'}), 404
+    
+    new_pinned = not bool(task['is_pinned'])
+    cursor.execute(
+        'UPDATE tasks SET is_pinned = ?, updated_at = ? WHERE id = ?',
+        (new_pinned, format_datetime(datetime.now()), task_id)
     )
     conn.commit()
     cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))

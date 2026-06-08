@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import TaskItem from './TaskItem';
 
-function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter, categories, tags, onStatsChange, onAddTagToTask, onRemoveTagFromTask, tagFilter, searchQuery, loading }) {
+function TaskList({ tasks, onToggle, onTogglePin, onDelete, onUpdate, filter, categoryFilter, categories, tags, onStatsChange, onAddTagToTask, onRemoveTagFromTask, tagFilter, searchQuery, loading }) {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [sortBy, setSortBy] = useState('created_at');
   const priorityOrder = { high: 0, medium: 1, low: 2 };
@@ -26,6 +26,9 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
   });
 
   const sortedTasks = [...statusFilteredTasks].sort((a, b) => {
+    if (a.is_pinned !== b.is_pinned) {
+      return b.is_pinned ? 1 : -1;
+    }
     switch (sortBy) {
       case 'due_date_asc':
         if (!a.due_date && !b.due_date) return 0;
@@ -155,6 +158,7 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
             key={task.id}
             task={task}
             onToggle={onToggle}
+            onTogglePin={onTogglePin}
             onDelete={onDelete}
             onUpdate={onUpdate}
             categories={categories}

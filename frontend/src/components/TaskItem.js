@@ -6,7 +6,7 @@ function formatForDatetimeLocal(dateStr) {
   return normalized.slice(0, 16);
 }
 
-function TaskItem({ task, onToggle, onDelete, onUpdate, categories, tags, onAddTagToTask, onRemoveTagFromTask }) {
+function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories, tags, onAddTagToTask, onRemoveTagFromTask }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDescription, setEditDescription] = useState(task.description);
@@ -196,7 +196,7 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories, tags, onAddT
   const overdue = isOverdue();
 
   return (
-    <div className={`task-item ${task.completed ? 'completed' : ''} ${overdue ? 'overdue' : ''}`}>
+    <div className={`task-item ${task.completed ? 'completed' : ''} ${overdue ? 'overdue' : ''} ${task.is_pinned ? 'pinned' : ''}`}>
       <div className="task-header">
         <label className="task-checkbox">
           <input
@@ -211,6 +211,9 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories, tags, onAddT
         </label>
         <div className="task-content" onDoubleClick={() => setIsEditing(true)}>
           <h3 className={task.completed ? 'completed-text' : ''}>
+            {task.is_pinned && (
+              <span className="pin-indicator" title="已置顶">📌</span>
+            )}
             <span className={`task-priority-badge priority-${task.priority || 'medium'}`}>
               {getPriorityLabel(task.priority)}
             </span>
@@ -262,6 +265,13 @@ function TaskItem({ task, onToggle, onDelete, onUpdate, categories, tags, onAddT
         </div>
       </div>
       <div className="task-actions">
+        <button
+          className={`btn-pin ${task.is_pinned ? 'pinned' : ''}`}
+          onClick={() => onTogglePin(task.id)}
+          title={task.is_pinned ? '取消置顶' : '置顶'}
+        >
+          {task.is_pinned ? '📌' : '📍'}
+        </button>
         <button className="btn-edit" onClick={() => setIsEditing(true)}>
           编辑
         </button>

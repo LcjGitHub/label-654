@@ -299,6 +299,16 @@ function TodoApp() {
     }
   };
 
+  const handleTogglePinTask = async (id) => {
+    try {
+      setError(null);
+      await taskApi.togglePinTask(id);
+      await refreshTasks();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleDeleteTask = async (id) => {
     try {
       setError(null);
@@ -469,6 +479,7 @@ function TodoApp() {
           <TaskList
             tasks={tasks}
             onToggle={handleToggleTask}
+            onTogglePin={handleTogglePinTask}
             onDelete={handleDeleteTask}
             onUpdate={handleUpdateTask}
             filter={filter}
