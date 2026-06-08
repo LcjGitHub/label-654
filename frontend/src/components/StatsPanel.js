@@ -39,7 +39,7 @@ function StatsPanel({ onClose }) {
       const data = await statsApi.getStats();
       setStats(data);
     } catch (err) {
-      setError(err.message || '加载统计数据失败');
+      setError('无法加载统计数据，请稍后重试');
     } finally {
       setLoading(false);
     }

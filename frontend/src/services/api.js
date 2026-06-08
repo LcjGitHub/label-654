@@ -20,14 +20,37 @@ function handleUnauthorized() {
 async function handleResponse(response) {
   if (response.status === 401) {
     handleUnauthorized();
-    const error = await response.json();
-    throw new Error(error.error || '未授权，请重新登录');
+    let errorMsg = '未授权，请重新登录';
+    try {
+      const error = await response.json();
+      if (error && error.error) {
+        errorMsg = error.error;
+      }
+    } catch (_) {
+      // 忽略解析错误，使用默认提示
+    }
+    throw new Error(errorMsg);
   }
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || '请求失败');
+    let errorMsg = '请求失败，请稍后重试';
+    try {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const error = await response.json();
+        if (error && typeof error === 'object' && error.error) {
+          errorMsg = error.error;
+        }
+      }
+    } catch (_) {
+      // JSON 解析失败或响应体不可读，回退默认提示
+    }
+    throw new Error(errorMsg);
   }
-  return response.json();
+  try {
+    return await response.json();
+  } catch (_) {
+    throw new Error('响应数据解析失败，请稍后重试');
+  }
 }
 
 function getAuthHeaders() {
@@ -60,10 +83,25 @@ export const authApi = {
       body: JSON.stringify({ username, password }),
     });
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || '登录失败');
+      let errorMsg = '登录失败，请稍后重试';
+      try {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const error = await response.json();
+          if (error && typeof error === 'object' && error.error) {
+            errorMsg = error.error;
+          }
+        }
+      } catch (_) {
+        // 解析失败使用默认提示
+      }
+      throw new Error(errorMsg);
     }
-    return response.json();
+    try {
+      return await response.json();
+    } catch (_) {
+      throw new Error('登录响应解析失败，请稍后重试');
+    }
   },
 
   async register(username, password) {
@@ -75,10 +113,25 @@ export const authApi = {
       body: JSON.stringify({ username, password }),
     });
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || '注册失败');
+      let errorMsg = '注册失败，请稍后重试';
+      try {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const error = await response.json();
+          if (error && typeof error === 'object' && error.error) {
+            errorMsg = error.error;
+          }
+        }
+      } catch (_) {
+        // 解析失败使用默认提示
+      }
+      throw new Error(errorMsg);
     }
-    return response.json();
+    try {
+      return await response.json();
+    } catch (_) {
+      throw new Error('注册响应解析失败，请稍后重试');
+    }
   },
 
   async verifyToken() {

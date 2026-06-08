@@ -190,6 +190,12 @@ def migrate_db():
             ALTER TABLE tasks ADD COLUMN completed_at TIMESTAMP
         ''')
         conn.commit()
+        cursor.execute('''
+            UPDATE tasks
+            SET completed_at = COALESCE(updated_at, created_at)
+            WHERE completed = 1 AND completed_at IS NULL
+        ''')
+        conn.commit()
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS attachments (
@@ -203,6 +209,13 @@ def migrate_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
         )
+    ''')
+    conn.commit()
+    
+    cursor.execute('''
+        UPDATE tasks
+        SET completed_at = COALESCE(updated_at, created_at)
+        WHERE completed = 1 AND completed_at IS NULL
     ''')
     conn.commit()
     
