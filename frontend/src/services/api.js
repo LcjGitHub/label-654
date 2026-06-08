@@ -41,6 +41,15 @@ function getAuthHeaders() {
   return headers;
 }
 
+function getAuthHeadersWithoutContentType() {
+  const token = getToken();
+  const headers = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 export const authApi = {
   async login(username, password) {
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -269,6 +278,35 @@ export const tagApi = {
 
   async removeTagFromTask(taskId, tagId) {
     const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/tags/${tagId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+};
+
+export const attachmentApi = {
+  async uploadAttachment(taskId, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/attachments`, {
+      method: 'POST',
+      headers: getAuthHeadersWithoutContentType(),
+      body: formData,
+    });
+    return handleResponse(response);
+  },
+
+  getAttachmentUrl(attachmentId) {
+    return `${API_BASE_URL}/tasks/attachments/${attachmentId}`;
+  },
+
+  getAttachmentDownloadUrl(attachmentId) {
+    return `${API_BASE_URL}/tasks/attachments/${attachmentId}/download`;
+  },
+
+  async deleteAttachment(attachmentId) {
+    const response = await fetch(`${API_BASE_URL}/tasks/attachments/${attachmentId}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });

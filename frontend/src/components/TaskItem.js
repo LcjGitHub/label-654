@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
+import { attachmentApi } from '../services/api';
 
 const REPEAT_OPTIONS = [
   { value: 'none', label: '不重复', icon: '' },
@@ -22,13 +23,56 @@ const REPEAT_LABELS = {
   yearly: '每年',
 };
 
+const FILE_ICONS = {
+  png: '🖼️',
+  jpg: '🖼️',
+  jpeg: '🖼️',
+  gif: '🖼️',
+  bmp: '🖼️',
+  webp: '🖼️',
+  pdf: '📕',
+  doc: '📘',
+  docx: '📘',
+  xls: '📗',
+  xlsx: '📗',
+  ppt: '📙',
+  pptx: '📙',
+  txt: '📄',
+  csv: '📊',
+  zip: '📦',
+  rar: '📦',
+  md: '📝',
+};
+
 function formatForDatetimeLocal(dateStr) {
   if (!dateStr) return '';
   const normalized = dateStr.replace(' ', 'T');
   return normalized.slice(0, 16);
 }
 
-function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories, tags, onAddTagToTask, onRemoveTagFromTask }) {
+function getFileIcon(filename) {
+  const ext = filename.split('.').pop().toLowerCase();
+  return FILE_ICONS[ext] || '📄';
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function formatDate(dateStr) {
+  const date = new Date(dateStr);
+  return date.toLocaleString('zh-CN', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories, tags, onAddTagToTask, onRemoveTagFromTask, onUploadAttachment, onDeleteAttachment }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDescription, setEditDescription] = useState(task.description);
@@ -37,6 +81,9 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
   const [editDueDate, setEditDueDate] = useState(formatForDatetimeLocal(task.due_date));
   const [editRepeatPattern, setEditRepeatPattern] = useState(task.repeat_pattern || 'none');
   const [editTagIds, setEditTagIds] = useState((task.tags || []).map(t => t.id));
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
   const handleTagToggle = (tagId) => {
     setEditTagIds(prev =>
@@ -44,6 +91,35 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
         ? prev.filter(id => id !== tagId)
         : [...prev, tagId]
     );
+  };
+
+  const handleEditFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    setPendingFiles(prev => [...prev, ...files]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removePendingFile = (index) => {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadPendingFiles = async () => {
+    if (pendingFiles.length === 0) return;
+    setUploading(true);
+    try {
+      for (const file of pendingFiles) {
+        try {
+          await onUploadAttachment(task.id, file);
+        } catch (err) {
+          console.error('上传附件失败:', err);
+        }
+      }
+      setPendingFiles([]);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleSave = async () => {
@@ -68,9 +144,12 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
       for (const tagId of tagsToRemove) {
         await onRemoveTagFromTask(task.id, tagId);
       }
+
+      await uploadPendingFiles();
     } catch (err) {
     }
     setIsEditing(false);
+    setPendingFiles([]);
   };
 
   const handleKeyDown = (e) => {
@@ -87,17 +166,8 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
       setEditDueDate(formatForDatetimeLocal(task.due_date));
       setEditRepeatPattern(task.repeat_pattern || 'none');
       setEditTagIds((task.tags || []).map(t => t.id));
+      setPendingFiles([]);
     }
-  };
-
-  const formatDate = (dateStr) => {
-    const date = new Date(dateStr);
-    return date.toLocaleString('zh-CN', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
   };
 
   const isOverdue = () => {
@@ -111,6 +181,35 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
       case 'low': return '低';
       default: return '中';
     }
+  };
+
+  const handlePreviewAttachment = (attachment) => {
+    const url = attachmentApi.getAttachmentUrl(attachment.id);
+    window.open(url, '_blank');
+  };
+
+  const handleDownloadAttachment = (attachment) => {
+    const url = attachmentApi.getAttachmentDownloadUrl(attachment.id);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = attachment.original_filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const handleDeleteAttachmentClick = async (attachmentId) => {
+    if (window.confirm('确定要删除这个附件吗？')) {
+      try {
+        await onDeleteAttachment(task.id, attachmentId);
+      } catch (err) {
+      }
+    }
+  };
+
+  const isImageFile = (filename) => {
+    const ext = filename.split('.').pop().toLowerCase();
+    return ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].includes(ext);
   };
 
   if (isEditing) {
@@ -209,9 +308,83 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
           </div>
         )}
 
+        <div className="task-attachments-upload">
+          <label>附件：</label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            onChange={handleEditFileSelect}
+            style={{ display: 'none' }}
+            accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.md"
+          />
+          <button
+            type="button"
+            className="btn-upload-attachments"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            📎 添加附件
+          </button>
+          {task.attachments && task.attachments.length > 0 && (
+            <div className="attachments-list">
+              {task.attachments.map((att) => (
+                <div key={att.id} className="attachment-item">
+                  <span className="attachment-icon">{getFileIcon(att.original_filename)}</span>
+                  <span className="attachment-name" title={att.original_filename}>{att.original_filename}</span>
+                  <span className="attachment-size">{formatFileSize(att.file_size)}</span>
+                  <button
+                    type="button"
+                    className="attachment-action-btn"
+                    onClick={() => handlePreviewAttachment(att)}
+                    title="预览"
+                  >
+                    👁️
+                  </button>
+                  <button
+                    type="button"
+                    className="attachment-action-btn"
+                    onClick={() => handleDownloadAttachment(att)}
+                    title="下载"
+                  >
+                    ⬇️
+                  </button>
+                  <button
+                    type="button"
+                    className="attachment-action-btn remove"
+                    onClick={() => handleDeleteAttachmentClick(att.id)}
+                    title="删除"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {pendingFiles.length > 0 && (
+            <div className="attachments-list pending">
+              <div className="pending-attachments-title">待上传：</div>
+              {pendingFiles.map((file, index) => (
+                <div key={index} className="attachment-item pending">
+                  <span className="attachment-icon">{getFileIcon(file.name)}</span>
+                  <span className="attachment-name" title={file.name}>{file.name}</span>
+                  <span className="attachment-size">{formatFileSize(file.size)}</span>
+                  <button
+                    type="button"
+                    className="attachment-action-btn remove"
+                    onClick={() => removePendingFile(index)}
+                    title="移除"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="edit-actions">
-          <button className="btn-save" onClick={handleSave}>
-            保存
+          <button className="btn-save" onClick={handleSave} disabled={uploading}>
+            {uploading ? '上传中...' : '保存'}
           </button>
           <button
             className="btn-cancel-edit"
@@ -224,6 +397,7 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
               setEditDueDate(formatForDatetimeLocal(task.due_date));
               setEditRepeatPattern(task.repeat_pattern || 'none');
               setEditTagIds((task.tags || []).map(t => t.id));
+              setPendingFiles([]);
             }}
           >
             取消
@@ -234,6 +408,7 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
   }
 
   const overdue = isOverdue();
+  const hasAttachments = task.attachments && task.attachments.length > 0;
 
   return (
     <div className={`task-item ${task.completed ? 'completed' : ''} ${overdue ? 'overdue' : ''} ${task.is_pinned ? 'pinned' : ''}`}>
@@ -281,6 +456,11 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
                 {REPEAT_ICONS[task.repeat_pattern]}
               </span>
             )}
+            {hasAttachments && (
+              <span className="attachment-indicator" title={`包含 ${task.attachments.length} 个附件`}>
+                📎
+              </span>
+            )}
             {task.title}
           </h3>
           {task.description && (
@@ -312,6 +492,59 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
               </span>
             )}
           </div>
+          {hasAttachments && (
+            <div className="task-attachments-preview">
+              {task.attachments.map((att) => (
+                <div
+                  key={att.id}
+                  className="attachment-preview-item"
+                  onClick={() => handlePreviewAttachment(att)}
+                  title={`点击预览：${att.original_filename}`}
+                >
+                  {isImageFile(att.original_filename) ? (
+                    <img
+                      src={attachmentApi.getAttachmentUrl(att.id)}
+                      alt={att.original_filename}
+                      className="attachment-thumbnail"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        e.target.nextSibling.style.display = 'flex';
+                      }}
+                    />
+                  ) : null}
+                  <div className={`attachment-placeholder ${isImageFile(att.original_filename) ? 'hidden' : ''}`}>
+                    <span className="attachment-preview-icon">{getFileIcon(att.original_filename)}</span>
+                  </div>
+                  <div className="attachment-preview-info">
+                    <span className="attachment-preview-name" title={att.original_filename}>
+                      {att.original_filename}
+                    </span>
+                    <span className="attachment-preview-size">{formatFileSize(att.file_size)}</span>
+                  </div>
+                  <button
+                    className="attachment-download-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDownloadAttachment(att);
+                    }}
+                    title="下载"
+                  >
+                    ⬇️
+                  </button>
+                  <button
+                    className="attachment-delete-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteAttachmentClick(att.id);
+                    }}
+                    title="删除附件"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       <div className="task-actions">

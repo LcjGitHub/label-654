@@ -2,12 +2,15 @@ import sqlite3
 import threading
 import time
 import atexit
+import os
+import uuid
 from datetime import datetime, timedelta
 from functools import wraps
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 import calendar
 
 VALID_REPEAT_PATTERNS = ['none', 'daily', 'weekly', 'monthly', 'yearly']
@@ -17,6 +20,13 @@ CORS(app)
 
 app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
 DATABASE = 'todo.db'
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'zip', 'rar', 'md'}
+MAX_CONTENT_LENGTH = 50 * 1024 * 1024
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
 def format_datetime(dt):
     return dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -117,6 +127,21 @@ def get_db():
     conn.execute('PRAGMA foreign_keys = ON')
     return conn
 
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def attachment_to_dict(attachment):
+    return {
+        'id': attachment['id'],
+        'task_id': attachment['task_id'],
+        'filename': attachment['filename'],
+        'original_filename': attachment['original_filename'],
+        'file_path': attachment['file_path'],
+        'file_size': attachment['file_size'],
+        'mime_type': attachment['mime_type'],
+        'created_at': attachment['created_at']
+    }
+
 def migrate_db():
     conn = get_db()
     cursor = conn.cursor()
@@ -159,6 +184,21 @@ def migrate_db():
             ALTER TABLE tasks ADD COLUMN repeat_parent_id INTEGER REFERENCES tasks (id) ON DELETE SET NULL
         ''')
         conn.commit()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS attachments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            filename TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            mime_type TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+        )
+    ''')
+    conn.commit()
     
     conn.close()
 
@@ -225,6 +265,19 @@ def init_db():
             FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS attachments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            filename TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            mime_type TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+        )
+    ''')
     conn.commit()
     conn.close()
     
@@ -275,7 +328,7 @@ def tag_to_dict(tag):
         'created_at': tag['created_at']
     }
 
-def task_to_dict(task, category=None, tags=None):
+def task_to_dict(task, category=None, tags=None, attachments=None):
     result = {
         'id': task['id'],
         'category_id': task['category_id'],
@@ -294,6 +347,8 @@ def task_to_dict(task, category=None, tags=None):
         result['category'] = category_to_dict(category)
     if tags is not None:
         result['tags'] = [tag_to_dict(tag) for tag in tags]
+    if attachments is not None:
+        result['attachments'] = [attachment_to_dict(att) for att in attachments]
     return result
 
 @app.route('/api/auth/register', methods=['POST'])
@@ -449,7 +504,11 @@ def get_tasks(current_user_id):
             ORDER BY t.created_at ASC
         ''', (task['id'], current_user_id))
         tags = cursor.fetchall()
-        result.append(task_to_dict(task, category, tags))
+        cursor.execute('''
+            SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC
+        ''', (task['id'],))
+        attachments = cursor.fetchall()
+        result.append(task_to_dict(task, category, tags, attachments))
     
     conn.close()
     return jsonify(result)
@@ -478,8 +537,13 @@ def get_task(current_user_id, task_id):
     ''', (task['id'], current_user_id))
     tags = cursor.fetchall()
     
+    cursor.execute('''
+        SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC
+    ''', (task['id'],))
+    attachments = cursor.fetchall()
+    
     conn.close()
-    return jsonify(task_to_dict(task, category, tags))
+    return jsonify(task_to_dict(task, category, tags, attachments))
 
 def create_next_repeat_task(cursor, original_task, current_user_id):
     if not original_task['repeat_pattern'] or original_task['repeat_pattern'] == 'none':
@@ -597,8 +661,13 @@ def create_task(current_user_id):
     ''', (task['id'], current_user_id))
     tags = cursor.fetchall()
     
+    cursor.execute('''
+        SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC
+    ''', (task['id'],))
+    attachments = cursor.fetchall()
+    
     conn.close()
-    return jsonify(task_to_dict(task, category, tags)), 201
+    return jsonify(task_to_dict(task, category, tags, attachments)), 201
 
 @app.route('/api/tasks/<int:task_id>', methods=['PUT'])
 @token_required
@@ -656,8 +725,13 @@ def update_task(current_user_id, task_id):
     ''', (updated_task['id'], current_user_id))
     tags = cursor.fetchall()
     
+    cursor.execute('''
+        SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC
+    ''', (updated_task['id'],))
+    attachments = cursor.fetchall()
+    
     conn.close()
-    return jsonify(task_to_dict(updated_task, category, tags))
+    return jsonify(task_to_dict(updated_task, category, tags, attachments))
 
 @app.route('/api/tasks/<int:task_id>/toggle', methods=['PUT'])
 @token_required
@@ -700,8 +774,13 @@ def toggle_task(current_user_id, task_id):
     ''', (updated_task['id'], current_user_id))
     tags = cursor.fetchall()
     
+    cursor.execute('''
+        SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC
+    ''', (updated_task['id'],))
+    attachments = cursor.fetchall()
+    
     conn.close()
-    return jsonify(task_to_dict(updated_task, category, tags))
+    return jsonify(task_to_dict(updated_task, category, tags, attachments))
 
 @app.route('/api/tasks/<int:task_id>/pin', methods=['PUT'])
 @token_required
@@ -736,8 +815,13 @@ def toggle_pin_task(current_user_id, task_id):
     ''', (updated_task['id'], current_user_id))
     tags = cursor.fetchall()
     
+    cursor.execute('''
+        SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC
+    ''', (updated_task['id'],))
+    attachments = cursor.fetchall()
+    
     conn.close()
-    return jsonify(task_to_dict(updated_task, category, tags))
+    return jsonify(task_to_dict(updated_task, category, tags, attachments))
 
 @app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
 @token_required
@@ -750,10 +834,162 @@ def delete_task(current_user_id, task_id):
         conn.close()
         return jsonify({'error': '任务不存在'}), 404
     
+    cursor.execute('SELECT * FROM attachments WHERE task_id = ?', (task_id,))
+    attachments = cursor.fetchall()
+    for att in attachments:
+        try:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], att['filename'])
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
+    
     cursor.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
     conn.commit()
     conn.close()
     return jsonify({'message': '任务删除成功'})
+
+@app.route('/api/tasks/<int:task_id>/attachments', methods=['POST'])
+@token_required
+def upload_attachment(current_user_id, task_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, current_user_id))
+    task = cursor.fetchone()
+    if task is None:
+        conn.close()
+        return jsonify({'error': '任务不存在'}), 404
+    
+    if 'file' not in request.files:
+        conn.close()
+        return jsonify({'error': '未找到文件'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        conn.close()
+        return jsonify({'error': '未选择文件'}), 400
+    
+    if not allowed_file(file.filename):
+        conn.close()
+        return jsonify({'error': '不支持的文件类型'}), 400
+    
+    original_filename = secure_filename(file.filename)
+    ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else ''
+    unique_filename = f"{uuid.uuid4().hex}{'.' + ext if ext else ''}"
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+    
+    file.save(file_path)
+    file_size = os.path.getsize(file_path)
+    mime_type = file.mimetype
+    
+    cursor.execute(
+        'INSERT INTO attachments (task_id, filename, original_filename, file_path, file_size, mime_type) VALUES (?, ?, ?, ?, ?, ?)',
+        (task_id, unique_filename, original_filename, file_path, file_size, mime_type)
+    )
+    conn.commit()
+    attachment_id = cursor.lastrowid
+    
+    cursor.execute('SELECT * FROM attachments WHERE id = ?', (attachment_id,))
+    attachment = cursor.fetchone()
+    
+    cursor.execute('SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC', (task_id,))
+    all_attachments = cursor.fetchall()
+    
+    conn.close()
+    return jsonify({
+        'attachment': attachment_to_dict(attachment),
+        'attachments': [attachment_to_dict(a) for a in all_attachments]
+    }), 201
+
+@app.route('/api/tasks/attachments/<int:attachment_id>', methods=['GET'])
+@token_required
+def download_attachment(current_user_id, attachment_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT a.* FROM attachments a
+        INNER JOIN tasks t ON a.task_id = t.id
+        WHERE a.id = ? AND t.user_id = ?
+    ''', (attachment_id, current_user_id))
+    attachment = cursor.fetchone()
+    conn.close()
+    
+    if attachment is None:
+        return jsonify({'error': '附件不存在'}), 404
+    
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], attachment['filename'])
+    if not os.path.exists(file_path):
+        return jsonify({'error': '文件不存在'}), 404
+    
+    return send_from_directory(
+        app.config['UPLOAD_FOLDER'],
+        attachment['filename'],
+        as_attachment=False,
+        download_name=attachment['original_filename']
+    )
+
+@app.route('/api/tasks/attachments/<int:attachment_id>/download', methods=['GET'])
+@token_required
+def download_attachment_as_file(current_user_id, attachment_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT a.* FROM attachments a
+        INNER JOIN tasks t ON a.task_id = t.id
+        WHERE a.id = ? AND t.user_id = ?
+    ''', (attachment_id, current_user_id))
+    attachment = cursor.fetchone()
+    conn.close()
+    
+    if attachment is None:
+        return jsonify({'error': '附件不存在'}), 404
+    
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], attachment['filename'])
+    if not os.path.exists(file_path):
+        return jsonify({'error': '文件不存在'}), 404
+    
+    return send_from_directory(
+        app.config['UPLOAD_FOLDER'],
+        attachment['filename'],
+        as_attachment=True,
+        download_name=attachment['original_filename']
+    )
+
+@app.route('/api/tasks/attachments/<int:attachment_id>', methods=['DELETE'])
+@token_required
+def delete_attachment(current_user_id, attachment_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT a.* FROM attachments a
+        INNER JOIN tasks t ON a.task_id = t.id
+        WHERE a.id = ? AND t.user_id = ?
+    ''', (attachment_id, current_user_id))
+    attachment = cursor.fetchone()
+    if attachment is None:
+        conn.close()
+        return jsonify({'error': '附件不存在'}), 404
+    
+    task_id = attachment['task_id']
+    
+    try:
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], attachment['filename'])
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    except Exception:
+        pass
+    
+    cursor.execute('DELETE FROM attachments WHERE id = ?', (attachment_id,))
+    conn.commit()
+    
+    cursor.execute('SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC', (task_id,))
+    all_attachments = cursor.fetchall()
+    
+    conn.close()
+    return jsonify({
+        'message': '附件删除成功',
+        'attachments': [attachment_to_dict(a) for a in all_attachments]
+    })
 
 @app.route('/api/categories', methods=['GET'])
 @token_required

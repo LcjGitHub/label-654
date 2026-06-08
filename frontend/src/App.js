@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { taskApi, categoryApi, tagApi } from './services/api';
+import { taskApi, categoryApi, tagApi, attachmentApi } from './services/api';
 import { useAuth } from './context/AuthContext';
 import AddTask from './components/AddTask';
 import TaskList from './components/TaskList';
@@ -303,11 +303,56 @@ function TodoApp() {
     setTagFilter(tagId);
   };
 
-  const handleAddTask = async (task) => {
+  const handleAddTask = async (task, selectedFiles = []) => {
     try {
       setError(null);
-      await taskApi.createTask(task);
+      const createdTask = await taskApi.createTask(task);
+      if (selectedFiles && selectedFiles.length > 0) {
+        for (const file of selectedFiles) {
+          try {
+            await attachmentApi.uploadAttachment(createdTask.id, file);
+          } catch (err) {
+            console.error('上传附件失败:', err);
+          }
+        }
+      }
       await refreshTasks();
+      return createdTask;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const handleUploadAttachment = async (taskId, file) => {
+    try {
+      setError(null);
+      const result = await attachmentApi.uploadAttachment(taskId, file);
+      setTasks(prevTasks =>
+        prevTasks.map(task =>
+          task.id === taskId
+            ? { ...task, attachments: result.attachments }
+            : task
+        )
+      );
+      return result;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const handleDeleteAttachment = async (taskId, attachmentId) => {
+    try {
+      setError(null);
+      const result = await attachmentApi.deleteAttachment(attachmentId);
+      setTasks(prevTasks =>
+        prevTasks.map(task =>
+          task.id === taskId
+            ? { ...task, attachments: result.attachments }
+            : task
+        )
+      );
     } catch (err) {
       setError(err.message);
       throw err;
@@ -514,6 +559,8 @@ function TodoApp() {
             onStatsChange={handleStatsChange}
             onAddTagToTask={handleAddTagToTask}
             onRemoveTagFromTask={handleRemoveTagFromTask}
+            onUploadAttachment={handleUploadAttachment}
+            onDeleteAttachment={handleDeleteAttachment}
             tagFilter={tagFilter}
             searchQuery={searchQuery}
             loading={tasksLoading}

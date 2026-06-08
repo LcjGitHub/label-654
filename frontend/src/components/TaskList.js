@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import TaskItem from './TaskItem';
 
-function TaskList({ tasks, onToggle, onTogglePin, onDelete, onUpdate, filter, categoryFilter, categories, tags, onStatsChange, onAddTagToTask, onRemoveTagFromTask, tagFilter, searchQuery, loading }) {
+function TaskList({ tasks, onToggle, onTogglePin, onDelete, onUpdate, filter, categoryFilter, categories, tags, onStatsChange, onAddTagToTask, onRemoveTagFromTask, onUploadAttachment, onDeleteAttachment, tagFilter, searchQuery, loading }) {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [sortBy, setSortBy] = useState('created_at');
   const priorityOrder = { high: 0, medium: 1, low: 2 };
@@ -149,6 +149,8 @@ function TaskList({ tasks, onToggle, onTogglePin, onDelete, onUpdate, filter, ca
             tags={tags}
             onAddTagToTask={onAddTagToTask}
             onRemoveTagFromTask={onRemoveTagFromTask}
+            onUploadAttachment={onUploadAttachment}
+            onDeleteAttachment={onDeleteAttachment}
           />
         ))}
       </div>

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
+import { attachmentApi } from '../services/api';
 
 const PRESET_COLORS = [
   '#667eea',
@@ -38,6 +39,8 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreatingTag, setIsCreatingTag] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const fileInputRef = useRef(null);
 
   const resetForm = () => {
     setTitle('');
@@ -51,6 +54,35 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
     setShowNewTagForm(false);
     setNewTagName('');
     setNewTagColor(PRESET_COLORS[0]);
+    setSelectedFiles([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    setSelectedFiles(prev => [...prev, ...files]);
+  };
+
+  const removeSelectedFile = (index) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadFilesForTask = async (taskId) => {
+    for (const file of selectedFiles) {
+      try {
+        await attachmentApi.uploadAttachment(taskId, file);
+      } catch (err) {
+        console.error('上传附件失败:', err);
+      }
+    }
   };
 
   const handleTagToggle = (tagId) => {
@@ -94,7 +126,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
     
     setIsSubmitting(true);
     try {
-      await onAdd({
+      const createdTask = await onAdd({
         title: title.trim(),
         description: description.trim(),
         category_id: categoryId ? Number(categoryId) : null,
@@ -103,7 +135,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
         is_pinned: isPinned,
         repeat_pattern: repeatPattern,
         tag_ids: selectedTagIds,
-      });
+      }, selectedFiles);
       
       resetForm();
       setIsExpanded(false);
@@ -281,6 +313,43 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
                     {isCreatingTag ? '创建中...' : '创建'}
                   </button>
                 </div>
+              </div>
+            )}
+          </div>
+
+          <div className="task-attachments-upload">
+            <label>附件：</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              onChange={handleFileSelect}
+              style={{ display: 'none' }}
+              accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.md"
+            />
+            <button
+              type="button"
+              className="btn-upload-attachments"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              📎 选择文件
+            </button>
+            {selectedFiles.length > 0 && (
+              <div className="selected-files-list">
+                {selectedFiles.map((file, index) => (
+                  <div key={index} className="selected-file-item">
+                    <span className="file-icon">📄</span>
+                    <span className="file-name">{file.name}</span>
+                    <span className="file-size">{formatFileSize(file.size)}</span>
+                    <button
+                      type="button"
+                      className="remove-file-btn"
+                      onClick={() => removeSelectedFile(index)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>

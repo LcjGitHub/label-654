@@ -1971,3 +1971,238 @@
   border: 1px solid #ddd6fe;
   white-space: nowrap;
 }
+
+.attachment-indicator {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 0.95rem;
+  vertical-align: middle;
+  color: #6b7280;
+}
+
+.task-attachments-upload {
+  margin-bottom: 12px;
+}
+
+.task-attachments-upload > label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.btn-upload-attachments {
+  padding: 8px 16px;
+  background: #eff6ff;
+  color: #3b82f6;
+  border: 2px dashed #93c5fd;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.btn-upload-attachments:hover {
+  background: #dbeafe;
+  border-color: #3b82f6;
+}
+
+.selected-files-list,
+.attachments-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.selected-file-item,
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.attachment-item.pending {
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
+.file-icon,
+.attachment-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.file-name,
+.attachment-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #374151;
+}
+
+.file-size,
+.attachment-size {
+  color: #6b7280;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.remove-file-btn,
+.attachment-action-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #9ca3af;
+  font-size: 0.85rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.remove-file-btn:hover,
+.attachment-action-btn:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.attachment-action-btn.remove:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.pending-attachments-title {
+  font-size: 0.8rem;
+  color: #92400e;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.task-attachments-preview {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attachment-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.attachment-preview-item:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.attachment-thumbnail {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+  border: 1px solid #e5e7eb;
+}
+
+.attachment-placeholder {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e5e7eb;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.attachment-placeholder.hidden {
+  display: none;
+}
+
+.attachment-preview-icon {
+  font-size: 1.5rem;
+}
+
+.attachment-preview-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attachment-preview-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-preview-size {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.attachment-download-btn,
+.attachment-delete-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.attachment-download-btn:hover {
+  background: #dbeafe;
+}
+
+.attachment-delete-btn:hover {
+  background: #fee2e2;
+}
+
+@media (max-width: 480px) {
+  .attachment-preview-item {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .attachment-thumbnail,
+  .attachment-placeholder {
+    width: 40px;
+    height: 40px;
+  }
+
+  .attachment-preview-icon {
+    font-size: 1.2rem;
+  }
+
+  .selected-file-item,
+  .attachment-item {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    gap: 6px;
+  }
+}
