@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { attachmentApi } from '../services/api';
+import TaskComments from './TaskComments';
 
 const REPEAT_OPTIONS = [
   { value: 'none', label: '不重复', icon: '' },
@@ -74,6 +75,7 @@ function formatDate(dateStr) {
 
 function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories, tags, onAddTagToTask, onRemoveTagFromTask, onUploadAttachment, onDeleteAttachment }) {
   const [isEditing, setIsEditing] = useState(false);
+  const [showComments, setShowComments] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDescription, setEditDescription] = useState(task.description);
   const [editCategoryId, setEditCategoryId] = useState(task.category_id || '');
@@ -600,6 +602,13 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
         >
           📌
         </button>
+        <button
+          className={`btn-comments ${showComments ? 'active' : ''}`}
+          onClick={() => setShowComments(!showComments)}
+          title="评论讨论"
+        >
+          💬 评论
+        </button>
         <button className="btn-edit" onClick={() => setIsEditing(true)}>
           编辑
         </button>
@@ -607,6 +616,9 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
           删除
         </button>
       </div>
+      {showComments && (
+        <TaskComments taskId={task.id} />
+      )}
     </div>
   );
 }

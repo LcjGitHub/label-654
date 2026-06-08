@@ -523,6 +523,60 @@ def migrate_db():
             )
         ''')
     conn.commit()
+
+    if DB_TYPE == 'postgresql':
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_comments (
+                id SERIAL PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                parent_id INTEGER,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_id) REFERENCES task_comments (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS comment_likes (
+                id SERIAL PRIMARY KEY,
+                comment_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (comment_id) REFERENCES task_comments (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(comment_id, user_id)
+            )
+        ''')
+    else:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                parent_id INTEGER,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_id) REFERENCES task_comments (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS comment_likes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                comment_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (comment_id) REFERENCES task_comments (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(comment_id, user_id)
+            )
+        ''')
+    conn.commit()
     
     conn.close()
 
@@ -602,6 +656,31 @@ def init_db():
                 mime_type TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_comments (
+                id SERIAL PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                parent_id INTEGER,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_id) REFERENCES task_comments (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS comment_likes (
+                id SERIAL PRIMARY KEY,
+                comment_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (comment_id) REFERENCES task_comments (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(comment_id, user_id)
             )
         ''')
     else:
@@ -729,6 +808,31 @@ def init_db():
                 FOREIGN KEY (shared_with_user_id) REFERENCES users (id) ON DELETE CASCADE
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                parent_id INTEGER,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_id) REFERENCES task_comments (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS comment_likes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                comment_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (comment_id) REFERENCES task_comments (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(comment_id, user_id)
+            )
+        ''')
     conn.commit()
     conn.close()
     
@@ -767,6 +871,24 @@ def task_share_to_dict(share):
         'can_edit': bool(share['can_edit']),
         'created_at': share['created_at']
     }
+
+def comment_to_dict(comment, user=None, like_count=0, is_liked=False, reply_user=None):
+    result = {
+        'id': comment['id'],
+        'task_id': comment['task_id'],
+        'user_id': comment['user_id'],
+        'parent_id': comment['parent_id'],
+        'content': comment['content'],
+        'created_at': comment['created_at'],
+        'updated_at': comment['updated_at'],
+        'like_count': like_count,
+        'is_liked': is_liked
+    }
+    if user:
+        result['user'] = user_to_dict(user)
+    if reply_user:
+        result['reply_user'] = user_to_dict(reply_user)
+    return result
 
 def token_required(f):
     @wraps(f)
@@ -2831,6 +2953,306 @@ def get_team_users(current_user_id, team_id):
         'created_at': user['created_at'],
         'role': user['role']
     } for user in users])
+
+
+def _user_can_access_task(cursor, user_id, task_id):
+    cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
+    task = cursor.fetchone()
+    if task is None:
+        return None
+    if task['user_id'] == user_id:
+        return task
+    if task['assignee_id'] == user_id:
+        return task
+    cursor.execute('''
+        SELECT 1 FROM task_shares
+        WHERE task_id = ? AND (shared_with_user_id = ? OR team_id IN (
+            SELECT team_id FROM team_members WHERE user_id = ?
+        ))
+    ''', (task_id, user_id, user_id))
+    shared = cursor.fetchone()
+    if shared:
+        return task
+    return None
+
+
+@app.route('/api/tasks/<int:task_id>/comments', methods=['GET'])
+@token_required
+def get_task_comments(current_user_id, task_id):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    task = _user_can_access_task(cursor, current_user_id, task_id)
+    if task is None:
+        conn.close()
+        return jsonify({'error': '任务不存在或您无权限访问'}), 404
+
+    cursor.execute('''
+        SELECT c.* FROM task_comments c
+        WHERE c.task_id = ?
+        ORDER BY c.created_at ASC
+    ''', (task_id,))
+    comments = cursor.fetchall()
+
+    result = []
+    for comment in comments:
+        cursor.execute('SELECT * FROM users WHERE id = ?', (comment['user_id'],))
+        user = cursor.fetchone()
+        cursor.execute('SELECT COUNT(*) as cnt FROM comment_likes WHERE comment_id = ?', (comment['id'],))
+        like_count = cursor.fetchone()['cnt']
+        cursor.execute('SELECT 1 FROM comment_likes WHERE comment_id = ? AND user_id = ?', (comment['id'], current_user_id))
+        is_liked = cursor.fetchone() is not None
+        reply_user = None
+        if comment['parent_id']:
+            cursor.execute('SELECT user_id FROM task_comments WHERE id = ?', (comment['parent_id'],))
+            parent_comment = cursor.fetchone()
+            if parent_comment:
+                cursor.execute('SELECT * FROM users WHERE id = ?', (parent_comment['user_id'],))
+                reply_user = cursor.fetchone()
+        result.append(comment_to_dict(comment, user, like_count, is_liked, reply_user))
+
+    conn.close()
+    return jsonify(result)
+
+
+@app.route('/api/tasks/<int:task_id>/comments', methods=['POST'])
+@token_required
+def create_task_comment(current_user_id, task_id):
+    data = request.get_json()
+    if not data or 'content' not in data or not data['content'].strip():
+        return jsonify({'error': '评论内容不能为空'}), 400
+
+    content = data['content'].strip()
+    parent_id = data.get('parent_id')
+
+    if len(content) > 2000:
+        return jsonify({'error': '评论内容不能超过 2000 个字符'}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    task = _user_can_access_task(cursor, current_user_id, task_id)
+    if task is None:
+        conn.close()
+        return jsonify({'error': '任务不存在或您无权限访问'}), 404
+
+    if parent_id is not None:
+        cursor.execute('SELECT * FROM task_comments WHERE id = ? AND task_id = ?', (parent_id, task_id))
+        parent_comment = cursor.fetchone()
+        if parent_comment is None:
+            conn.close()
+            return jsonify({'error': '回复的评论不存在'}), 404
+
+    cursor.execute(
+        'INSERT INTO task_comments (task_id, user_id, parent_id, content) VALUES (?, ?, ?, ?)',
+        (task_id, current_user_id, parent_id, content)
+    )
+    conn.commit()
+    comment_id = cursor.lastrowid
+
+    cursor.execute('SELECT * FROM task_comments WHERE id = ?', (comment_id,))
+    comment = cursor.fetchone()
+
+    cursor.execute('SELECT * FROM users WHERE id = ?', (current_user_id,))
+    user = cursor.fetchone()
+
+    reply_user = None
+    if comment['parent_id']:
+        cursor.execute('SELECT user_id FROM task_comments WHERE id = ?', (comment['parent_id'],))
+        parent_comment = cursor.fetchone()
+        if parent_comment:
+            cursor.execute('SELECT * FROM users WHERE id = ?', (parent_comment['user_id'],))
+            reply_user = cursor.fetchone()
+
+    conn.close()
+    return jsonify(comment_to_dict(comment, user, 0, False, reply_user)), 201
+
+
+@app.route('/api/comments/<int:comment_id>', methods=['PUT'])
+@token_required
+def update_comment(current_user_id, comment_id):
+    data = request.get_json()
+    if not data or 'content' not in data or not data['content'].strip():
+        return jsonify({'error': '评论内容不能为空'}), 400
+
+    content = data['content'].strip()
+    if len(content) > 2000:
+        return jsonify({'error': '评论内容不能超过 2000 个字符'}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM task_comments WHERE id = ?', (comment_id,))
+    comment = cursor.fetchone()
+    if comment is None:
+        conn.close()
+        return jsonify({'error': '评论不存在'}), 404
+
+    if comment['user_id'] != current_user_id:
+        conn.close()
+        return jsonify({'error': '您只能编辑自己的评论'}), 403
+
+    cursor.execute(
+        'UPDATE task_comments SET content = ?, updated_at = ? WHERE id = ?',
+        (content, format_datetime(datetime.now()), comment_id)
+    )
+    conn.commit()
+
+    cursor.execute('SELECT * FROM task_comments WHERE id = ?', (comment_id,))
+    updated_comment = cursor.fetchone()
+
+    cursor.execute('SELECT * FROM users WHERE id = ?', (comment['user_id'],))
+    user = cursor.fetchone()
+
+    cursor.execute('SELECT COUNT(*) as cnt FROM comment_likes WHERE comment_id = ?', (comment_id,))
+    like_count = cursor.fetchone()['cnt']
+
+    cursor.execute('SELECT 1 FROM comment_likes WHERE comment_id = ? AND user_id = ?', (comment_id, current_user_id))
+    is_liked = cursor.fetchone() is not None
+
+    reply_user = None
+    if updated_comment['parent_id']:
+        cursor.execute('SELECT user_id FROM task_comments WHERE id = ?', (updated_comment['parent_id'],))
+        parent_comment = cursor.fetchone()
+        if parent_comment:
+            cursor.execute('SELECT * FROM users WHERE id = ?', (parent_comment['user_id'],))
+            reply_user = cursor.fetchone()
+
+    conn.close()
+    return jsonify(comment_to_dict(updated_comment, user, like_count, is_liked, reply_user))
+
+
+@app.route('/api/comments/<int:comment_id>', methods=['DELETE'])
+@token_required
+def delete_comment(current_user_id, comment_id):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM task_comments WHERE id = ?', (comment_id,))
+    comment = cursor.fetchone()
+    if comment is None:
+        conn.close()
+        return jsonify({'error': '评论不存在'}), 404
+
+    if comment['user_id'] != current_user_id:
+        conn.close()
+        return jsonify({'error': '您只能删除自己的评论'}), 403
+
+    cursor.execute('DELETE FROM task_comments WHERE id = ?', (comment_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '评论删除成功'})
+
+
+@app.route('/api/comments/<int:comment_id>/like', methods=['POST'])
+@token_required
+def like_comment(current_user_id, comment_id):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT c.*, t.user_id as task_user_id FROM task_comments c INNER JOIN tasks t ON c.task_id = t.id WHERE c.id = ?', (comment_id,))
+    comment = cursor.fetchone()
+    if comment is None:
+        conn.close()
+        return jsonify({'error': '评论不存在'}), 404
+
+    task = _user_can_access_task(cursor, current_user_id, comment['task_id'])
+    if task is None:
+        conn.close()
+        return jsonify({'error': '您无权限操作此评论'}), 403
+
+    if DB_TYPE == 'postgresql':
+        cursor.execute('''
+            INSERT INTO comment_likes (comment_id, user_id)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+        ''', (comment_id, current_user_id))
+    else:
+        cursor.execute('INSERT OR IGNORE INTO comment_likes (comment_id, user_id) VALUES (?, ?)', (comment_id, current_user_id))
+    conn.commit()
+
+    cursor.execute('SELECT COUNT(*) as cnt FROM comment_likes WHERE comment_id = ?', (comment_id,))
+    like_count = cursor.fetchone()['cnt']
+
+    conn.close()
+    return jsonify({'like_count': like_count, 'is_liked': True})
+
+
+@app.route('/api/comments/<int:comment_id>/like', methods=['DELETE'])
+@token_required
+def unlike_comment(current_user_id, comment_id):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT c.* FROM task_comments c WHERE c.id = ?', (comment_id,))
+    comment = cursor.fetchone()
+    if comment is None:
+        conn.close()
+        return jsonify({'error': '评论不存在'}), 404
+
+    task = _user_can_access_task(cursor, current_user_id, comment['task_id'])
+    if task is None:
+        conn.close()
+        return jsonify({'error': '您无权限操作此评论'}), 403
+
+    cursor.execute('DELETE FROM comment_likes WHERE comment_id = ? AND user_id = ?', (comment_id, current_user_id))
+    conn.commit()
+
+    cursor.execute('SELECT COUNT(*) as cnt FROM comment_likes WHERE comment_id = ?', (comment_id,))
+    like_count = cursor.fetchone()['cnt']
+
+    conn.close()
+    return jsonify({'like_count': like_count, 'is_liked': False})
+
+
+@app.route('/api/tasks/<int:task_id>/mention-users', methods=['GET'])
+@token_required
+def get_task_mention_users(current_user_id, task_id):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    task = _user_can_access_task(cursor, current_user_id, task_id)
+    if task is None:
+        conn.close()
+        return jsonify({'error': '任务不存在或您无权限访问'}), 404
+
+    user_ids = set()
+    user_ids.add(task['user_id'])
+    if task['assignee_id']:
+        user_ids.add(task['assignee_id'])
+
+    cursor.execute('''
+        SELECT DISTINCT shared_with_user_id FROM task_shares
+        WHERE task_id = ? AND shared_with_user_id IS NOT NULL
+    ''', (task_id,))
+    for row in cursor.fetchall():
+        if row['shared_with_user_id']:
+            user_ids.add(row['shared_with_user_id'])
+
+    cursor.execute('''
+        SELECT DISTINCT tm.user_id FROM task_shares ts
+        INNER JOIN team_members tm ON ts.team_id = tm.team_id
+        WHERE ts.task_id = ?
+    ''', (task_id,))
+    for row in cursor.fetchall():
+        user_ids.add(row['user_id'])
+
+    cursor.execute('''
+        SELECT DISTINCT c.user_id FROM task_comments c
+        WHERE c.task_id = ?
+    ''', (task_id,))
+    for row in cursor.fetchall():
+        user_ids.add(row['user_id'])
+
+    result = []
+    for uid in user_ids:
+        cursor.execute('SELECT id, username, created_at FROM users WHERE id = ?', (uid,))
+        user = cursor.fetchone()
+        if user:
+            result.append(user_to_dict(user))
+
+    conn.close()
+    return jsonify(result)
 
 
 def wait_for_db():

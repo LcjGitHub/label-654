@@ -5,4 +5,5 @@ export { tagApi } from './tag';
 export { attachmentApi } from './attachment';
 export { statsApi } from './stats';
 export { httpClient, API_BASE_URL } from './client';
+export { commentApi } from './comment';
 export type * from './types';

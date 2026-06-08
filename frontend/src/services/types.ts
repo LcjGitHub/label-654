@@ -200,6 +200,29 @@ export interface ApiErrorResponse {
   error: string;
 }
 
+export interface TaskComment {
+  id: number;
+  task_id: number;
+  user_id: number;
+  parent_id: number | null;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  like_count: number;
+  is_liked: boolean;
+  user?: User;
+  reply_user?: User;
+}
+
+export interface TaskCommentCreate {
+  content: string;
+  parent_id?: number | null;
+}
+
+export interface TaskCommentUpdate {
+  content: string;
+}
+
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
 export interface RequestConfig {
