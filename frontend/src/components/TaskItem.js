@@ -83,6 +83,8 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
   const [editTagIds, setEditTagIds] = useState((task.tags || []).map(t => t.id));
   const [pendingFiles, setPendingFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [actionError, setActionError] = useState('');
   const fileInputRef = useRef(null);
 
   const handleTagToggle = (tagId) => {
@@ -96,6 +98,7 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
   const handleEditFileSelect = (e) => {
     const files = Array.from(e.target.files);
     setPendingFiles(prev => [...prev, ...files]);
+    setUploadError('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -106,24 +109,40 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
   };
 
   const uploadPendingFiles = async () => {
-    if (pendingFiles.length === 0) return;
+    if (pendingFiles.length === 0) return { success: true, failed: [] };
     setUploading(true);
-    try {
-      for (const file of pendingFiles) {
-        try {
-          await onUploadAttachment(task.id, file);
-        } catch (err) {
-          console.error('上传附件失败:', err);
-        }
+    setUploadError('');
+    const failed = [];
+    const remaining = [];
+
+    for (let i = 0; i < pendingFiles.length; i++) {
+      const file = pendingFiles[i];
+      try {
+        await onUploadAttachment(task.id, file);
+      } catch (err) {
+        console.error('上传附件失败:', file.name, err);
+        failed.push({ name: file.name, error: err.message });
+        remaining.push(file);
       }
-      setPendingFiles([]);
-    } finally {
-      setUploading(false);
     }
+
+    setPendingFiles(remaining);
+    setUploading(false);
+
+    if (failed.length > 0) {
+      const names = failed.map(f => f.name).join('、');
+      setUploadError(`以下附件上传失败：${names}，请重试或移除`);
+      return { success: false, failed };
+    }
+
+    return { success: true, failed: [] };
   };
 
   const handleSave = async () => {
     if (!editTitle.trim()) return;
+    setActionError('');
+    setUploadError('');
+
     try {
       await onUpdate(task.id, {
         title: editTitle.trim(),
@@ -145,11 +164,32 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
         await onRemoveTagFromTask(task.id, tagId);
       }
 
-      await uploadPendingFiles();
+      const uploadResult = await uploadPendingFiles();
+      if (!uploadResult.success) {
+        return;
+      }
+
+      setIsEditing(false);
+      setPendingFiles([]);
+      setUploadError('');
+      setActionError('');
     } catch (err) {
+      setActionError(err.message || '保存失败，请重试');
     }
+  };
+
+  const handleCancel = () => {
     setIsEditing(false);
+    setEditTitle(task.title);
+    setEditDescription(task.description);
+    setEditCategoryId(task.category_id || '');
+    setEditPriority(task.priority || 'medium');
+    setEditDueDate(formatForDatetimeLocal(task.due_date));
+    setEditRepeatPattern(task.repeat_pattern || 'none');
+    setEditTagIds((task.tags || []).map(t => t.id));
     setPendingFiles([]);
+    setUploadError('');
+    setActionError('');
   };
 
   const handleKeyDown = (e) => {
@@ -158,15 +198,7 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
       handleSave();
     }
     if (e.key === 'Escape') {
-      setIsEditing(false);
-      setEditTitle(task.title);
-      setEditDescription(task.description);
-      setEditCategoryId(task.category_id || '');
-      setEditPriority(task.priority || 'medium');
-      setEditDueDate(formatForDatetimeLocal(task.due_date));
-      setEditRepeatPattern(task.repeat_pattern || 'none');
-      setEditTagIds((task.tags || []).map(t => t.id));
-      setPendingFiles([]);
+      handleCancel();
     }
   };
 
@@ -183,26 +215,31 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
     }
   };
 
-  const handlePreviewAttachment = (attachment) => {
-    const url = attachmentApi.getAttachmentUrl(attachment.id);
-    window.open(url, '_blank');
+  const handlePreviewAttachment = async (attachment) => {
+    try {
+      setActionError('');
+      await attachmentApi.previewAttachment(attachment.id);
+    } catch (err) {
+      setActionError(`预览失败：${err.message}`);
+    }
   };
 
-  const handleDownloadAttachment = (attachment) => {
-    const url = attachmentApi.getAttachmentDownloadUrl(attachment.id);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = attachment.original_filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  const handleDownloadAttachment = async (attachment) => {
+    try {
+      setActionError('');
+      await attachmentApi.downloadAttachment(attachment.id);
+    } catch (err) {
+      setActionError(`下载失败：${err.message}`);
+    }
   };
 
   const handleDeleteAttachmentClick = async (attachmentId) => {
     if (window.confirm('确定要删除这个附件吗？')) {
       try {
+        setActionError('');
         await onDeleteAttachment(task.id, attachmentId);
       } catch (err) {
+        setActionError(`删除附件失败：${err.message}`);
       }
     }
   };
@@ -380,7 +417,18 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
               ))}
             </div>
           )}
+          {uploadError && (
+            <div style={{ marginTop: '8px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', borderRadius: '6px', fontSize: '0.85rem' }}>
+              ⚠️ {uploadError}
+            </div>
+          )}
         </div>
+
+        {actionError && (
+          <div style={{ marginBottom: '12px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', borderRadius: '6px', fontSize: '0.85rem' }}>
+            ❌ {actionError}
+          </div>
+        )}
 
         <div className="edit-actions">
           <button className="btn-save" onClick={handleSave} disabled={uploading}>
@@ -388,17 +436,7 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
           </button>
           <button
             className="btn-cancel-edit"
-            onClick={() => {
-              setIsEditing(false);
-              setEditTitle(task.title);
-              setEditDescription(task.description);
-              setEditCategoryId(task.category_id || '');
-              setEditPriority(task.priority || 'medium');
-              setEditDueDate(formatForDatetimeLocal(task.due_date));
-              setEditRepeatPattern(task.repeat_pattern || 'none');
-              setEditTagIds((task.tags || []).map(t => t.id));
-              setPendingFiles([]);
-            }}
+            onClick={handleCancel}
           >
             取消
           </button>
@@ -466,6 +504,11 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
           {task.description && (
             <p className={task.completed ? 'completed-text' : ''}>{task.description}</p>
           )}
+          {actionError && (
+            <div style={{ marginTop: '8px', marginBottom: '8px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', borderRadius: '6px', fontSize: '0.85rem' }}>
+              ❌ {actionError}
+            </div>
+          )}
           <div className="task-meta">
             <span className="task-date">{formatDate(task.created_at)}</span>
             {task.due_date && (
@@ -508,7 +551,9 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
                       className="attachment-thumbnail"
                       onError={(e) => {
                         e.target.style.display = 'none';
-                        e.target.nextSibling.style.display = 'flex';
+                        if (e.target.nextSibling) {
+                          e.target.nextSibling.style.display = 'flex';
+                        }
                       }}
                     />
                   ) : null}

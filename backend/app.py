@@ -292,6 +292,9 @@ def token_required(f):
             token = auth_header.split(' ')[1]
         
         if not token:
+            token = request.args.get('token')
+        
+        if not token:
             return jsonify({'error': '令牌缺失'}), 401
         
         try:

@@ -307,17 +307,19 @@ function TodoApp() {
     try {
       setError(null);
       const createdTask = await taskApi.createTask(task);
+      const failedFiles = [];
       if (selectedFiles && selectedFiles.length > 0) {
         for (const file of selectedFiles) {
           try {
             await attachmentApi.uploadAttachment(createdTask.id, file);
           } catch (err) {
-            console.error('上传附件失败:', err);
+            console.error('上传附件失败:', file.name, err);
+            failedFiles.push({ file, error: err.message });
           }
         }
       }
       await refreshTasks();
-      return createdTask;
+      return { task: createdTask, failedFiles };
     } catch (err) {
       setError(err.message);
       throw err;

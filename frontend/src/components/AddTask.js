@@ -40,6 +40,8 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreatingTag, setIsCreatingTag] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [uploadError, setUploadError] = useState('');
+  const [submitError, setSubmitError] = useState('');
   const fileInputRef = useRef(null);
 
   const resetForm = () => {
@@ -55,12 +57,15 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
     setNewTagName('');
     setNewTagColor(PRESET_COLORS[0]);
     setSelectedFiles([]);
+    setUploadError('');
+    setSubmitError('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
   const formatFileSize = (bytes) => {
+    if (!bytes) return '0 B';
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
@@ -69,6 +74,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files);
     setSelectedFiles(prev => [...prev, ...files]);
+    setUploadError('');
   };
 
   const removeSelectedFile = (index) => {
@@ -123,10 +129,13 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim() || isSubmitting) return;
-    
+
     setIsSubmitting(true);
+    setUploadError('');
+    setSubmitError('');
+
     try {
-      const createdTask = await onAdd({
+      const result = await onAdd({
         title: title.trim(),
         description: description.trim(),
         category_id: categoryId ? Number(categoryId) : null,
@@ -136,10 +145,18 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
         repeat_pattern: repeatPattern,
         tag_ids: selectedTagIds,
       }, selectedFiles);
-      
+
+      if (result.failedFiles && result.failedFiles.length > 0) {
+        const failedNames = result.failedFiles.map(f => f.file.name).join('、');
+        setUploadError(`任务已创建，但以下附件上传失败：${failedNames}。您可以编辑任务重新上传。`);
+        setIsSubmitting(false);
+        return;
+      }
+
       resetForm();
       setIsExpanded(false);
     } catch (err) {
+      setSubmitError(err.message || '创建任务失败，请重试');
     } finally {
       setIsSubmitting(false);
     }
@@ -352,7 +369,18 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
                 ))}
               </div>
             )}
+            {uploadError && (
+              <div style={{ marginTop: '8px', padding: '8px 12px', background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e', borderRadius: '6px', fontSize: '0.85rem' }}>
+                ⚠️ {uploadError}
+              </div>
+            )}
           </div>
+
+          {submitError && (
+            <div style={{ marginBottom: '12px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', borderRadius: '6px', fontSize: '0.85rem' }}>
+              ❌ {submitError}
+            </div>
+          )}
 
           <div className="add-task-actions">
             <button type="button" className="btn-cancel" onClick={() => { resetForm(); setIsExpanded(false); }}>
