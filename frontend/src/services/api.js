@@ -93,7 +93,7 @@ export const authApi = {
 };
 
 export const taskApi = {
-  async getAllTasks(signal, categoryId = null, tagId = null) {
+  async getAllTasks(signal, categoryId = null, tagId = null, search = null) {
     let url = `${API_BASE_URL}/tasks`;
     const params = [];
     if (categoryId !== null) {
@@ -101,6 +101,9 @@ export const taskApi = {
     }
     if (tagId !== null) {
       params.push(`tag_id=${tagId}`);
+    }
+    if (search !== null && search.trim() !== '') {
+      params.push(`search=${encodeURIComponent(search.trim())}`);
     }
     if (params.length > 0) {
       url += '?' + params.join('&');

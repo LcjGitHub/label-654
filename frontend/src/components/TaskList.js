@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import TaskItem from './TaskItem';
 
-function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter, categories, tags, onStatsChange, onAddTagToTask, onRemoveTagFromTask, tagFilter }) {
+function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter, categories, tags, onStatsChange, onAddTagToTask, onRemoveTagFromTask, tagFilter, searchQuery }) {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [sortBy, setSortBy] = useState('created_at');
   const priorityOrder = { high: 0, medium: 1, low: 2 };
@@ -76,6 +76,12 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
     return '没有符合条件的任务';
   };
 
+  const searchResultInfo = searchQuery && searchQuery.trim() !== '' ? (
+    <div className="search-result-info">
+      找到 <strong>{sortedTasks.length}</strong> 个匹配 "{searchQuery.trim()}" 的任务
+    </div>
+  ) : null;
+
   if (sortedTasks.length === 0) {
     return (
       <div className="task-list-section">
@@ -108,6 +114,7 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
             </select>
           </div>
         </div>
+        {searchResultInfo}
         <div className="empty-state">
           <div className="empty-icon">📋</div>
           <p>{getEmptyMessage()}</p>
@@ -147,6 +154,7 @@ function TaskList({ tasks, onToggle, onDelete, onUpdate, filter, categoryFilter,
           </select>
         </div>
       </div>
+      {searchResultInfo}
       <div className="task-list">
         {sortedTasks.map((task) => (
           <TaskItem

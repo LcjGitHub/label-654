@@ -270,20 +270,34 @@ def login():
 def get_tasks(current_user_id):
     category_id = request.args.get('category_id', type=int)
     tag_id = request.args.get('tag_id', type=int)
+    search = request.args.get('search', type=str)
     conn = get_db()
     cursor = conn.cursor()
     
+    base_query = 'SELECT * FROM tasks WHERE user_id = ?'
+    params = [current_user_id]
+    
+    if search:
+        search_pattern = f'%{search}%'
+        base_query += ' AND (title LIKE ? OR description LIKE ?)'
+        params.extend([search_pattern, search_pattern])
+    
     if tag_id is not None:
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT DISTINCT t.* FROM tasks t
             INNER JOIN task_tags tt ON t.id = tt.task_id
             WHERE t.user_id = ? AND tt.tag_id = ?
+            {'AND (t.title LIKE ? OR t.description LIKE ?)' if search else ''}
             ORDER BY t.created_at DESC
-        ''', (current_user_id, tag_id))
+        ''', [current_user_id, tag_id] + ([f'%{search}%', f'%{search}%'] if search else []))
     elif category_id is not None:
-        cursor.execute('SELECT * FROM tasks WHERE user_id = ? AND category_id = ? ORDER BY created_at DESC', (current_user_id, category_id))
+        base_query += ' AND category_id = ?'
+        params.append(category_id)
+        base_query += ' ORDER BY created_at DESC'
+        cursor.execute(base_query, params)
     else:
-        cursor.execute('SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at DESC', (current_user_id,))
+        base_query += ' ORDER BY created_at DESC'
+        cursor.execute(base_query, params)
     
     tasks = cursor.fetchall()
     

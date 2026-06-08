@@ -9,6 +9,7 @@ import CategoryList from './components/CategoryList';
 import AddTag from './components/AddTag';
 import TagList from './components/TagList';
 import TagCloud from './components/TagCloud';
+import SearchBar from './components/SearchBar';
 import Login from './components/Login';
 import Register from './components/Register';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -26,7 +27,10 @@ function TodoApp() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [stats, setStats] = useState({ total: 0, active: 0, completed: 0, priorityFilter: 'all', categoryFilter: 'all' });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const abortControllerRef = useRef(null);
+  const searchAbortControllerRef = useRef(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -40,12 +44,53 @@ function TodoApp() {
     };
   }, []);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    searchAbortControllerRef.current?.abort();
+    searchAbortControllerRef.current = new AbortController();
+    
+    const searchTasks = async () => {
+      try {
+        setLoading(true);
+        const tasksData = await taskApi.getAllTasks(
+          searchAbortControllerRef.current.signal,
+          null,
+          null,
+          debouncedSearch
+        );
+        if (!searchAbortControllerRef.current.signal?.aborted) {
+          setTasks(tasksData);
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          setError(err.message);
+        }
+      } finally {
+        if (!searchAbortControllerRef.current.signal?.aborted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    searchTasks();
+
+    return () => {
+      searchAbortControllerRef.current?.abort();
+    };
+  }, [debouncedSearch]);
+
   const loadData = async (signal) => {
     try {
       setLoading(true);
       setError(null);
       const [tasksData, categoriesData, tagsData] = await Promise.all([
-        taskApi.getAllTasks(signal),
+        taskApi.getAllTasks(signal, null, null, debouncedSearch),
         categoryApi.getAllCategories(signal),
         tagApi.getAllTags(signal),
       ]);
@@ -348,6 +393,11 @@ function TodoApp() {
           </div>
         )}
 
+        <SearchBar
+          value={searchQuery}
+          onChange={setSearchQuery}
+        />
+
         <AddTask onAdd={handleAddTask} categories={categories} tags={tags} onCreateTag={handleAddTag} />
 
         <div className="manager-toggles">
@@ -453,6 +503,7 @@ function TodoApp() {
             onAddTagToTask={handleAddTagToTask}
             onRemoveTagFromTask={handleRemoveTagFromTask}
             tagFilter={tagFilter}
+            searchQuery={searchQuery}
           />
         )}
 
