@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { attachmentApi, teamApi } from '../services/api';
+import TemplateSelector from './TemplateSelector';
 
 const PRESET_COLORS = [
   '#667eea',
@@ -24,7 +25,7 @@ const REPEAT_OPTIONS = [
   { value: 'yearly', label: '每年', icon: '📆' },
 ];
 
-function AddTask({ onAdd, categories, tags, onCreateTag }) {
+function AddTask({ onAdd, categories, tags, onCreateTag, onOpenTemplateManager }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState('');
@@ -42,6 +43,7 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [uploadError, setUploadError] = useState('');
   const [submitError, setSubmitError] = useState('');
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const fileInputRef = useRef(null);
 
   const [teams, setTeams] = useState([]);
@@ -173,6 +175,17 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
     }
   };
 
+  const applyTemplate = (template) => {
+    setTitle(template.title || '');
+    setDescription(template.description || '');
+    setCategoryId(template.category_id ? String(template.category_id) : '');
+    setPriority(template.priority || 'medium');
+    setIsPinned(template.is_pinned || false);
+    setRepeatPattern(template.repeat_pattern || 'none');
+    setSelectedTagIds((template.tags || []).map(t => t.id));
+    setShowTemplateSelector(false);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim() || isSubmitting) return;
@@ -231,6 +244,15 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
         </div>
       ) : (
         <div className="add-task-expanded">
+          <div className="template-select-row">
+            <button
+              type="button"
+              className="btn-use-template"
+              onClick={() => setShowTemplateSelector(true)}
+            >
+              📋 使用模板
+            </button>
+          </div>
           <input
             type="text"
             placeholder="任务标题"
@@ -518,6 +540,13 @@ function AddTask({ onAdd, categories, tags, onCreateTag }) {
         </div>
         )}
       </form>
+      {showTemplateSelector && (
+        <TemplateSelector
+          onSelect={applyTemplate}
+          onClose={() => setShowTemplateSelector(false)}
+          onManage={onOpenTemplateManager}
+        />
+      )}
     </div>
   );
 }

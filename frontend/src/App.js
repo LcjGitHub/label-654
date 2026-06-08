@@ -17,6 +17,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import TeamManager from './components/TeamManager';
 import TeamBoard from './components/TeamBoard';
 import AcceptInvitation from './components/AcceptInvitation';
+import TemplateManager from './components/TemplateManager';
 import './App.css';
 
 function TodoApp() {
@@ -33,6 +34,7 @@ function TodoApp() {
   const [showTagManager, setShowTagManager] = useState(false);
   const [showTeamManager, setShowTeamManager] = useState(false);
   const [showTeamBoard, setShowTeamBoard] = useState(false);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -520,7 +522,13 @@ function TodoApp() {
           onChange={setSearchQuery}
         />
 
-        <AddTask onAdd={handleAddTask} categories={categories} tags={tags} onCreateTag={handleAddTag} />
+        <AddTask
+          onAdd={handleAddTask}
+          categories={categories}
+          tags={tags}
+          onCreateTag={handleAddTag}
+          onOpenTemplateManager={() => setShowTemplateManager(true)}
+        />
 
         <div className="manager-toggles">
           <button
@@ -536,6 +544,13 @@ function TodoApp() {
             onClick={() => setShowTagManager(!showTagManager)}
           >
             {showTagManager ? '隐藏标签管理' : '管理标签'}
+          </button>
+          <button
+            type="button"
+            className="template-toggle-btn"
+            onClick={() => setShowTemplateManager(true)}
+          >
+            📋 管理模板
           </button>
         </div>
 
@@ -732,6 +747,12 @@ function TodoApp() {
           <TeamBoard
             onClose={() => { setShowTeamBoard(false); }}
             allTags={tags}
+          />
+        )}
+
+        {showTemplateManager && (
+          <TemplateManager
+            onClose={() => { setShowTemplateManager(false); }}
           />
         )}
       </div>

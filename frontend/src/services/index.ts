@@ -6,4 +6,5 @@ export { attachmentApi } from './attachment';
 export { statsApi } from './stats';
 export { httpClient, API_BASE_URL } from './client';
 export { commentApi } from './comment';
+export { templateApi } from './template';
 export type * from './types';

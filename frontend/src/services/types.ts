@@ -223,6 +223,62 @@ export interface TaskCommentUpdate {
   content: string;
 }
 
+export interface TaskTemplate {
+  id: number;
+  user_id: number;
+  name: string;
+  title: string;
+  description: string | null;
+  priority: string;
+  category_id: number | null;
+  category: Category | null;
+  tags: Tag[];
+  is_pinned: boolean;
+  repeat_pattern: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskTemplateCreate {
+  name: string;
+  title: string;
+  description?: string | null;
+  priority?: string;
+  category_id?: number | null;
+  is_pinned?: boolean;
+  repeat_pattern?: string;
+  tag_ids?: number[];
+}
+
+export interface TaskTemplateUpdate {
+  name?: string;
+  title?: string;
+  description?: string | null;
+  priority?: string;
+  category_id?: number | null;
+  is_pinned?: boolean;
+  repeat_pattern?: string;
+  tag_ids?: number[];
+}
+
+export interface ApplyTemplateOptions {
+  title?: string;
+  description?: string | null;
+  category_id?: number | null;
+  priority?: string;
+  due_date?: string | null;
+  is_pinned?: boolean;
+  repeat_pattern?: string;
+  assignee_id?: number | null;
+  share_team_id?: number | null;
+  share_with_user_ids?: number[];
+  share_can_edit?: boolean;
+}
+
+export interface SaveAsTemplateRequest {
+  name: string;
+}
+
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
 export interface RequestConfig {

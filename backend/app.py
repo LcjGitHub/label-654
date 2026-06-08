@@ -578,6 +578,66 @@ def migrate_db():
         ''')
     conn.commit()
     
+    if DB_TYPE == 'postgresql':
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_templates (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT DEFAULT 'medium',
+                category_id INTEGER,
+                is_pinned BOOLEAN DEFAULT FALSE,
+                repeat_pattern TEXT DEFAULT 'none',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE SET NULL,
+                UNIQUE(user_id, name)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_template_tags (
+                template_id INTEGER NOT NULL,
+                tag_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (template_id, tag_id),
+                FOREIGN KEY (template_id) REFERENCES task_templates (id) ON DELETE CASCADE,
+                FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+            )
+        ''')
+    else:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT DEFAULT 'medium',
+                category_id INTEGER,
+                is_pinned BOOLEAN DEFAULT 0,
+                repeat_pattern TEXT DEFAULT 'none',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE SET NULL,
+                UNIQUE(user_id, name)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_template_tags (
+                template_id INTEGER NOT NULL,
+                tag_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (template_id, tag_id),
+                FOREIGN KEY (template_id) REFERENCES task_templates (id) ON DELETE CASCADE,
+                FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+            )
+        ''')
+    conn.commit()
+    
     conn.close()
 
 def init_db():
@@ -681,6 +741,34 @@ def init_db():
                 FOREIGN KEY (comment_id) REFERENCES task_comments (id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
                 UNIQUE(comment_id, user_id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_templates (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT DEFAULT 'medium',
+                category_id INTEGER,
+                is_pinned BOOLEAN DEFAULT FALSE,
+                repeat_pattern TEXT DEFAULT 'none',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE SET NULL,
+                UNIQUE(user_id, name)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_template_tags (
+                template_id INTEGER NOT NULL,
+                tag_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (template_id, tag_id),
+                FOREIGN KEY (template_id) REFERENCES task_templates (id) ON DELETE CASCADE,
+                FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
             )
         ''')
     else:
@@ -831,6 +919,34 @@ def init_db():
                 FOREIGN KEY (comment_id) REFERENCES task_comments (id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
                 UNIQUE(comment_id, user_id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT DEFAULT 'medium',
+                category_id INTEGER,
+                is_pinned BOOLEAN DEFAULT 0,
+                repeat_pattern TEXT DEFAULT 'none',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE SET NULL,
+                UNIQUE(user_id, name)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_template_tags (
+                template_id INTEGER NOT NULL,
+                tag_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (template_id, tag_id),
+                FOREIGN KEY (template_id) REFERENCES task_templates (id) ON DELETE CASCADE,
+                FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
             )
         ''')
     conn.commit()
@@ -3272,6 +3388,432 @@ def wait_for_db():
         print('[db] Could not connect to database after maximum retries')
         return False
     return True
+
+
+def task_template_to_dict(template, category=None, tags=None):
+    result = {
+        'id': template['id'],
+        'user_id': template['user_id'],
+        'name': template['name'],
+        'title': template['title'],
+        'description': template['description'],
+        'priority': template['priority'],
+        'category_id': template['category_id'],
+        'is_pinned': bool(template['is_pinned']),
+        'repeat_pattern': template['repeat_pattern'] or 'none',
+        'created_at': template['created_at'],
+        'updated_at': template['updated_at'],
+    }
+    if category:
+        result['category'] = category_to_dict(category)
+    if tags is not None:
+        result['tags'] = [tag_to_dict(tag) for tag in tags]
+    return result
+
+
+@app.route('/api/templates', methods=['GET'])
+@token_required
+def get_templates(current_user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT * FROM task_templates WHERE user_id = ? ORDER BY created_at DESC',
+        (current_user_id,)
+    )
+    templates = cursor.fetchall()
+    result = []
+    for template in templates:
+        category = None
+        if template['category_id']:
+            cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (template['category_id'], current_user_id))
+            category = cursor.fetchone()
+        cursor.execute('''
+            SELECT t.* FROM tags t
+            INNER JOIN task_template_tags ttt ON t.id = ttt.tag_id
+            WHERE ttt.template_id = ? AND t.user_id = ?
+            ORDER BY t.created_at ASC
+        ''', (template['id'], current_user_id))
+        tags = cursor.fetchall()
+        result.append(task_template_to_dict(template, category, tags))
+    conn.close()
+    return jsonify(result)
+
+
+@app.route('/api/templates/<int:template_id>', methods=['GET'])
+@token_required
+def get_template(current_user_id, template_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM task_templates WHERE id = ? AND user_id = ?', (template_id, current_user_id))
+    template = cursor.fetchone()
+    if template is None:
+        conn.close()
+        return jsonify({'error': '模板不存在'}), 404
+    category = None
+    if template['category_id']:
+        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (template['category_id'], current_user_id))
+        category = cursor.fetchone()
+    cursor.execute('''
+        SELECT t.* FROM tags t
+        INNER JOIN task_template_tags ttt ON t.id = ttt.tag_id
+        WHERE ttt.template_id = ? AND t.user_id = ?
+        ORDER BY t.created_at ASC
+    ''', (template['id'], current_user_id))
+    tags = cursor.fetchall()
+    conn.close()
+    return jsonify(task_template_to_dict(template, category, tags))
+
+
+@app.route('/api/templates', methods=['POST'])
+@token_required
+def create_template(current_user_id):
+    data = request.get_json()
+    if not data or 'name' not in data or not data['name'].strip():
+        return jsonify({'error': '模板名称不能为空'}), 400
+    if 'title' not in data or not data['title'].strip():
+        return jsonify({'error': '任务标题不能为空'}), 400
+
+    name = data['name'].strip()
+    title = data['title'].strip()
+    description = data.get('description', '')
+    category_id = data.get('category_id')
+    priority = data.get('priority', 'medium')
+    is_pinned = data.get('is_pinned', False)
+    repeat_pattern = validate_repeat_pattern(data.get('repeat_pattern', 'none'))
+    tag_ids = data.get('tag_ids', [])
+
+    if priority not in ['high', 'medium', 'low']:
+        priority = 'medium'
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM task_templates WHERE user_id = ? AND name = ?', (current_user_id, name))
+    existing = cursor.fetchone()
+    if existing:
+        conn.close()
+        return jsonify({'error': '模板名称已存在'}), 400
+
+    if category_id is not None:
+        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (category_id, current_user_id))
+        category = cursor.fetchone()
+        if not category:
+            conn.close()
+            return jsonify({'error': '分类不存在'}), 404
+
+    for tag_id in tag_ids:
+        cursor.execute('SELECT * FROM tags WHERE id = ? AND user_id = ?', (tag_id, current_user_id))
+        tag = cursor.fetchone()
+        if not tag:
+            conn.close()
+            return jsonify({'error': f'标签 ID {tag_id} 不存在'}), 404
+
+    cursor.execute(
+        'INSERT INTO task_templates (user_id, name, title, description, priority, category_id, is_pinned, repeat_pattern) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        (current_user_id, name, title, description, priority, category_id, 1 if is_pinned else 0, repeat_pattern)
+    )
+    conn.commit()
+    template_id = cursor.lastrowid
+
+    for tag_id in tag_ids:
+        cursor.execute(
+            'INSERT OR IGNORE INTO task_template_tags (template_id, tag_id) VALUES (?, ?)',
+            (template_id, tag_id)
+        )
+    conn.commit()
+
+    cursor.execute('SELECT * FROM task_templates WHERE id = ?', (template_id,))
+    template = cursor.fetchone()
+    category = None
+    if template['category_id']:
+        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (template['category_id'], current_user_id))
+        category = cursor.fetchone()
+    cursor.execute('''
+        SELECT t.* FROM tags t
+        INNER JOIN task_template_tags ttt ON t.id = ttt.tag_id
+        WHERE ttt.template_id = ? AND t.user_id = ?
+        ORDER BY t.created_at ASC
+    ''', (template['id'], current_user_id))
+    tags = cursor.fetchall()
+    conn.close()
+    return jsonify(task_template_to_dict(template, category, tags)), 201
+
+
+@app.route('/api/templates/<int:template_id>', methods=['PUT'])
+@token_required
+def update_template(current_user_id, template_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM task_templates WHERE id = ? AND user_id = ?', (template_id, current_user_id))
+    template = cursor.fetchone()
+    if template is None:
+        conn.close()
+        return jsonify({'error': '模板不存在'}), 404
+
+    data = request.get_json()
+    name = data.get('name', template['name']).strip() if 'name' in data else template['name']
+    title = data.get('title', template['title']).strip() if 'title' in data else template['title']
+    description = data.get('description', template['description']) if 'description' in data else template['description']
+    priority = data.get('priority', template['priority']) if 'priority' in data else template['priority']
+    category_id = data.get('category_id', template['category_id']) if 'category_id' in data else template['category_id']
+    is_pinned = data.get('is_pinned', bool(template['is_pinned'])) if 'is_pinned' in data else bool(template['is_pinned'])
+    repeat_pattern = validate_repeat_pattern(data.get('repeat_pattern', template['repeat_pattern'] or 'none')) if 'repeat_pattern' in data else template['repeat_pattern'] or 'none'
+    tag_ids = data.get('tag_ids', None)
+
+    if not name:
+        conn.close()
+        return jsonify({'error': '模板名称不能为空'}), 400
+    if not title:
+        conn.close()
+        return jsonify({'error': '任务标题不能为空'}), 400
+    if priority not in ['high', 'medium', 'low']:
+        priority = template['priority'] or 'medium'
+
+    if name != template['name']:
+        cursor.execute('SELECT * FROM task_templates WHERE user_id = ? AND name = ? AND id != ?', (current_user_id, name, template_id))
+        existing = cursor.fetchone()
+        if existing:
+            conn.close()
+            return jsonify({'error': '模板名称已存在'}), 400
+
+    if category_id is not None and category_id != template['category_id']:
+        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (category_id, current_user_id))
+        category = cursor.fetchone()
+        if not category:
+            conn.close()
+            return jsonify({'error': '分类不存在'}), 404
+
+    cursor.execute(
+        'UPDATE task_templates SET name = ?, title = ?, description = ?, priority = ?, category_id = ?, is_pinned = ?, repeat_pattern = ?, updated_at = ? WHERE id = ?',
+        (name, title, description, priority, category_id, 1 if is_pinned else 0, repeat_pattern, format_datetime(datetime.now()), template_id)
+    )
+    conn.commit()
+
+    if tag_ids is not None:
+        cursor.execute('DELETE FROM task_template_tags WHERE template_id = ?', (template_id,))
+        for tag_id in tag_ids:
+            cursor.execute('SELECT * FROM tags WHERE id = ? AND user_id = ?', (tag_id, current_user_id))
+            tag = cursor.fetchone()
+            if tag:
+                cursor.execute(
+                    'INSERT OR IGNORE INTO task_template_tags (template_id, tag_id) VALUES (?, ?)',
+                    (template_id, tag_id)
+                )
+        conn.commit()
+
+    cursor.execute('SELECT * FROM task_templates WHERE id = ?', (template_id,))
+    updated_template = cursor.fetchone()
+    category = None
+    if updated_template['category_id']:
+        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (updated_template['category_id'], current_user_id))
+        category = cursor.fetchone()
+    cursor.execute('''
+        SELECT t.* FROM tags t
+        INNER JOIN task_template_tags ttt ON t.id = ttt.tag_id
+        WHERE ttt.template_id = ? AND t.user_id = ?
+        ORDER BY t.created_at ASC
+    ''', (updated_template['id'], current_user_id))
+    tags = cursor.fetchall()
+    conn.close()
+    return jsonify(task_template_to_dict(updated_template, category, tags))
+
+
+@app.route('/api/templates/<int:template_id>', methods=['DELETE'])
+@token_required
+def delete_template(current_user_id, template_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM task_templates WHERE id = ? AND user_id = ?', (template_id, current_user_id))
+    template = cursor.fetchone()
+    if template is None:
+        conn.close()
+        return jsonify({'error': '模板不存在'}), 404
+    cursor.execute('DELETE FROM task_template_tags WHERE template_id = ?', (template_id,))
+    cursor.execute('DELETE FROM task_templates WHERE id = ?', (template_id,))
+    conn.commit()
+    conn.close()
+    return '', 204
+
+
+@app.route('/api/templates/<int:template_id>/apply', methods=['POST'])
+@token_required
+def create_task_from_template(current_user_id, template_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM task_templates WHERE id = ? AND user_id = ?', (template_id, current_user_id))
+    template = cursor.fetchone()
+    if template is None:
+        conn.close()
+        return jsonify({'error': '模板不存在'}), 404
+
+    data = request.get_json() or {}
+    title = data.get('title', template['title']).strip() or template['title']
+    description = data.get('description', template['description']) if 'description' in data else template['description']
+    category_id = data.get('category_id', template['category_id']) if 'category_id' in data else template['category_id']
+    priority = data.get('priority', template['priority']) if 'priority' in data else template['priority']
+    is_pinned = data.get('is_pinned', bool(template['is_pinned'])) if 'is_pinned' in data else bool(template['is_pinned'])
+    repeat_pattern = validate_repeat_pattern(data.get('repeat_pattern', template['repeat_pattern'] or 'none')) if 'repeat_pattern' in data else template['repeat_pattern'] or 'none'
+    due_date = format_due_date(data.get('due_date')) if 'due_date' in data else None
+    assignee_id = data.get('assignee_id')
+    share_team_id = data.get('share_team_id')
+    share_with_user_ids = data.get('share_with_user_ids', [])
+    share_can_edit = data.get('share_can_edit', False)
+
+    if priority not in ['high', 'medium', 'low']:
+        priority = 'medium'
+
+    if category_id is not None:
+        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (category_id, current_user_id))
+        category = cursor.fetchone()
+        if not category:
+            conn.close()
+            return jsonify({'error': '分类不存在'}), 404
+
+    if assignee_id is not None:
+        cursor.execute('SELECT * FROM users WHERE id = ?', (assignee_id,))
+        user = cursor.fetchone()
+        if not user:
+            conn.close()
+            return jsonify({'error': '被分配用户不存在'}), 404
+
+    if share_team_id is not None:
+        cursor.execute('''
+            SELECT tm.* FROM team_members tm
+            WHERE tm.team_id = ? AND tm.user_id = ?
+        ''', (share_team_id, current_user_id))
+        team_member = cursor.fetchone()
+        if team_member is None:
+            conn.close()
+            return jsonify({'error': '您不是该团队成员，无法与该团队共享'}), 403
+
+    for shared_uid in share_with_user_ids:
+        cursor.execute('SELECT * FROM users WHERE id = ?', (shared_uid,))
+        target_user = cursor.fetchone()
+        if target_user is None:
+            conn.close()
+            return jsonify({'error': f'目标用户 ID {shared_uid} 不存在'}), 404
+
+    cursor.execute(
+        'INSERT INTO tasks (user_id, category_id, title, description, priority, due_date, is_pinned, repeat_pattern, assignee_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        (current_user_id, category_id, title, description, priority, due_date, 1 if is_pinned else 0, repeat_pattern, assignee_id)
+    )
+    conn.commit()
+    task_id = cursor.lastrowid
+
+    cursor.execute('''
+        SELECT tag_id FROM task_template_tags WHERE template_id = ?
+    ''', (template_id,))
+    template_tag_rows = cursor.fetchall()
+    for tag_row in template_tag_rows:
+        cursor.execute(
+            'INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?, ?)',
+            (task_id, tag_row['tag_id'])
+        )
+    conn.commit()
+
+    if share_team_id is not None:
+        cursor.execute(
+            'INSERT INTO task_shares (task_id, team_id, can_edit) VALUES (?, ?, ?)',
+            (task_id, share_team_id, 1 if share_can_edit else 0)
+        )
+        conn.commit()
+
+    for shared_uid in share_with_user_ids:
+        cursor.execute(
+            'INSERT INTO task_shares (task_id, shared_with_user_id, can_edit) VALUES (?, ?, ?)',
+            (task_id, shared_uid, 1 if share_can_edit else 0)
+        )
+        conn.commit()
+
+    cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
+    task = cursor.fetchone()
+
+    category = None
+    if task['category_id']:
+        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (task['category_id'], current_user_id))
+        category = cursor.fetchone()
+
+    cursor.execute('''
+        SELECT t.* FROM tags t
+        INNER JOIN task_tags tt ON t.id = tt.tag_id
+        WHERE tt.task_id = ? AND t.user_id = ?
+        ORDER BY t.created_at ASC
+    ''', (task['id'], current_user_id))
+    tags = cursor.fetchall()
+
+    cursor.execute('''
+        SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at ASC
+    ''', (task['id'],))
+    attachments = cursor.fetchall()
+
+    assignee = None
+    if task['assignee_id']:
+        cursor.execute('SELECT * FROM users WHERE id = ?', (task['assignee_id'],))
+        assignee = cursor.fetchone()
+
+    cursor.execute('SELECT * FROM users WHERE id = ?', (current_user_id,))
+    creator = cursor.fetchone()
+
+    conn.close()
+    return jsonify(task_to_dict(task, category, tags, attachments, assignee, creator)), 201
+
+
+@app.route('/api/tasks/<int:task_id>/save-as-template', methods=['POST'])
+@token_required
+def save_task_as_template(current_user_id, task_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, current_user_id))
+    task = cursor.fetchone()
+    if task is None:
+        conn.close()
+        return jsonify({'error': '任务不存在'}), 404
+
+    data = request.get_json()
+    if not data or 'name' not in data or not data['name'].strip():
+        return jsonify({'error': '模板名称不能为空'}), 400
+
+    name = data['name'].strip()
+
+    cursor.execute('SELECT * FROM task_templates WHERE user_id = ? AND name = ?', (current_user_id, name))
+    existing = cursor.fetchone()
+    if existing:
+        conn.close()
+        return jsonify({'error': '模板名称已存在'}), 400
+
+    cursor.execute(
+        'INSERT INTO task_templates (user_id, name, title, description, priority, category_id, is_pinned, repeat_pattern) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        (current_user_id, name, task['title'], task['description'], task['priority'], task['category_id'], 1 if bool(task['is_pinned']) else 0, task['repeat_pattern'] or 'none')
+    )
+    conn.commit()
+    template_id = cursor.lastrowid
+
+    cursor.execute('''
+        SELECT tag_id FROM task_tags WHERE task_id = ?
+    ''', (task_id,))
+    task_tag_rows = cursor.fetchall()
+    for tag_row in task_tag_rows:
+        cursor.execute(
+            'INSERT OR IGNORE INTO task_template_tags (template_id, tag_id) VALUES (?, ?)',
+            (template_id, tag_row['tag_id'])
+        )
+    conn.commit()
+
+    cursor.execute('SELECT * FROM task_templates WHERE id = ?', (template_id,))
+    template = cursor.fetchone()
+    category = None
+    if template['category_id']:
+        cursor.execute('SELECT * FROM categories WHERE id = ? AND user_id = ?', (template['category_id'], current_user_id))
+        category = cursor.fetchone()
+    cursor.execute('''
+        SELECT t.* FROM tags t
+        INNER JOIN task_template_tags ttt ON t.id = ttt.tag_id
+        WHERE ttt.template_id = ? AND t.user_id = ?
+        ORDER BY t.created_at ASC
+    ''', (template['id'], current_user_id))
+    tags = cursor.fetchall()
+    conn.close()
+    return jsonify(task_template_to_dict(template, category, tags)), 201
 
 
 wait_for_db()

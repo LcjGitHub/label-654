@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { attachmentApi } from '../services/api';
+import { attachmentApi, templateApi } from '../services/api';
 import TaskComments from './TaskComments';
+import SaveAsTemplateModal from './SaveAsTemplateModal';
 
 const REPEAT_OPTIONS = [
   { value: 'none', label: '不重复', icon: '' },
@@ -76,6 +77,7 @@ function formatDate(dateStr) {
 function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories, tags, onAddTagToTask, onRemoveTagFromTask, onUploadAttachment, onDeleteAttachment }) {
   const [isEditing, setIsEditing] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [showSaveAsTemplate, setShowSaveAsTemplate] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDescription, setEditDescription] = useState(task.description);
   const [editCategoryId, setEditCategoryId] = useState(task.category_id || '');
@@ -603,6 +605,13 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
           📌
         </button>
         <button
+          className="btn-save-template"
+          onClick={() => setShowSaveAsTemplate(true)}
+          title="另存为模板"
+        >
+          💾 模板
+        </button>
+        <button
           className={`btn-comments ${showComments ? 'active' : ''}`}
           onClick={() => setShowComments(!showComments)}
           title="评论讨论"
@@ -618,6 +627,16 @@ function TaskItem({ task, onToggle, onTogglePin, onDelete, onUpdate, categories,
       </div>
       {showComments && (
         <TaskComments taskId={task.id} />
+      )}
+      {showSaveAsTemplate && (
+        <SaveAsTemplateModal
+          task={task}
+          onClose={() => setShowSaveAsTemplate(false)}
+          onSave={async (name) => {
+            const result = await templateApi.saveTaskAsTemplate(task.id, { name });
+            return result;
+          }}
+        />
       )}
     </div>
   );
