@@ -1050,18 +1050,18 @@ def toggle_task(current_user_id, task_id):
     old_completed = bool(task['completed'])
     new_completed = not old_completed
     
-    if new_completed and task['repeat_pattern'] and task['repeat_pattern'] != 'none':
-        root_id = get_repeat_root_id(cursor, current_user_id, task['id'])
-        if not series_has_active_next(cursor, current_user_id, root_id):
-            create_next_repeat_task(cursor, task, current_user_id)
-            conn.commit()
-    
     completed_at_val = format_datetime(datetime.now()) if new_completed else None
     cursor.execute(
         'UPDATE tasks SET completed = ?, completed_at = ?, updated_at = ? WHERE id = ?',
         (new_completed, completed_at_val, format_datetime(datetime.now()), task_id)
     )
     conn.commit()
+    
+    if new_completed and task['repeat_pattern'] and task['repeat_pattern'] != 'none':
+        root_id = get_repeat_root_id(cursor, current_user_id, task['id'])
+        if not series_has_active_next(cursor, current_user_id, root_id):
+            create_next_repeat_task(cursor, task, current_user_id)
+            conn.commit()
     cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
     updated_task = cursor.fetchone()
     
