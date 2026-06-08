@@ -13,13 +13,33 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import calendar
 
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    HAS_PSYCOPG2 = True
+except ImportError:
+    HAS_PSYCOPG2 = False
+
 VALID_REPEAT_PATTERNS = ['none', 'daily', 'weekly', 'monthly', 'yearly']
 
 app = Flask(__name__)
 CORS(app)
 
-app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
-DATABASE = 'todo.db'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
+
+DB_TYPE = os.environ.get('DB_TYPE', 'sqlite').lower()
+if DB_TYPE == 'postgresql' and HAS_PSYCOPG2:
+    DATABASE_CONFIG = {
+        'host': os.environ.get('DB_HOST', 'db'),
+        'port': os.environ.get('DB_PORT', '5432'),
+        'database': os.environ.get('DB_NAME', 'todo_app'),
+        'user': os.environ.get('DB_USER', 'postgres'),
+        'password': os.environ.get('DB_PASSWORD', 'postgres'),
+    }
+else:
+    DATABASE = os.environ.get('DB_PATH', 'todo.db')
+    DB_TYPE = 'sqlite'
+
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'zip', 'rar', 'md'}
 MAX_CONTENT_LENGTH = 50 * 1024 * 1024
@@ -27,6 +47,12 @@ MAX_CONTENT_LENGTH = 50 * 1024 * 1024
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
+
+
+def get_db_connection_string():
+    if DB_TYPE == 'postgresql':
+        return f"postgresql://{DATABASE_CONFIG['user']}:{DATABASE_CONFIG['password']}@{DATABASE_CONFIG['host']}:{DATABASE_CONFIG['port']}/{DATABASE_CONFIG['database']}"
+    return DATABASE
 
 def format_datetime(dt):
     return dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -121,11 +147,142 @@ def series_has_active_next(cursor, user_id, root_id):
     ''', (user_id, root_id, root_id))
     return cursor.fetchone()['cnt'] > 0
 
+class DictRow(dict):
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+    def __iter__(self):
+        return super().__iter__()
+
+
+class PostgresCursorWrapper:
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self._lastrowid = None
+
+    def _convert_params(self, params):
+        if params is None:
+            return ()
+        if isinstance(params, (list, tuple)):
+            return tuple(params)
+        return params
+
+    def _convert_query(self, query):
+        q = query.replace('?', '%s')
+        q = q.replace('INSERT OR IGNORE', 'INSERT')
+        if 'INSERT' in q.upper() and 'ON CONFLICT' not in q.upper():
+            if 'task_tags' in q.lower():
+                q = q + ' ON CONFLICT DO NOTHING'
+        return q
+
+    @property
+    def lastrowid(self):
+        return self._lastrowid
+
+    def _try_fetch_last_id(self, query):
+        import re
+        match = re.search(r'INSERT\s+INTO\s+(\w+)', query, re.IGNORECASE)
+        if match:
+            table_name = match.group(1)
+            try:
+                self._cursor.execute(f"SELECT currval(pg_get_serial_sequence('{table_name}', 'id'))")
+                result = self._cursor.fetchone()
+                if result:
+                    if hasattr(result, 'items'):
+                        self._lastrowid = list(dict(result).values())[0]
+                    else:
+                        self._lastrowid = result[0]
+            except Exception:
+                pass
+
+    def execute(self, query, params=None):
+        pg_query = self._convert_query(query)
+        pg_params = self._convert_params(params)
+        result = self._cursor.execute(pg_query, pg_params)
+        if query.strip().upper().startswith('INSERT'):
+            self._try_fetch_last_id(pg_query)
+        return result
+
+    def executemany(self, query, seq_of_params):
+        pg_query = self._convert_query(query)
+        return self._cursor.executemany(pg_query, seq_of_params)
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        if hasattr(row, 'items'):
+            return DictRow(row)
+        return row
+
+    def fetchall(self):
+        rows = self._cursor.fetchall()
+        result = []
+        for row in rows:
+            if hasattr(row, 'items'):
+                result.append(DictRow(row))
+            else:
+                result.append(row)
+        return result
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+    def __iter__(self):
+        for row in self._cursor:
+            if hasattr(row, 'items'):
+                yield DictRow(row)
+            else:
+                yield row
+
+
+class PostgresConnectionWrapper:
+    def __init__(self, connection):
+        self._connection = connection
+
+    def cursor(self):
+        return PostgresCursorWrapper(self._connection.cursor())
+
+    def commit(self):
+        return self._connection.commit()
+
+    def rollback(self):
+        return self._connection.rollback()
+
+    def close(self):
+        return self._connection.close()
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
 def get_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA foreign_keys = ON')
-    return conn
+    if DB_TYPE == 'postgresql':
+        conn = psycopg2.connect(
+            host=DATABASE_CONFIG['host'],
+            port=DATABASE_CONFIG['port'],
+            database=DATABASE_CONFIG['database'],
+            user=DATABASE_CONFIG['user'],
+            password=DATABASE_CONFIG['password'],
+            cursor_factory=RealDictCursor
+        )
+        conn.autocommit = False
+        return PostgresConnectionWrapper(conn)
+    else:
+        conn = sqlite3.connect(DATABASE)
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA foreign_keys = ON')
+        return conn
+
+
+def get_postgres_columns(cursor, table_name):
+    cursor.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+        (table_name,)
+    )
+    return [row['column_name'] for row in cursor.fetchall()]
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -145,9 +302,12 @@ def attachment_to_dict(attachment):
 def migrate_db():
     conn = get_db()
     cursor = conn.cursor()
-    
-    cursor.execute("PRAGMA table_info(tasks)")
-    columns = [col[1] for col in cursor.fetchall()]
+
+    if DB_TYPE == 'postgresql':
+        columns = get_postgres_columns(cursor, 'tasks')
+    else:
+        cursor.execute("PRAGMA table_info(tasks)")
+        columns = [col[1] for col in cursor.fetchall()]
     
     if 'category_id' not in columns:
         cursor.execute('''
@@ -168,9 +328,14 @@ def migrate_db():
         conn.commit()
     
     if 'is_pinned' not in columns:
-        cursor.execute('''
-            ALTER TABLE tasks ADD COLUMN is_pinned BOOLEAN DEFAULT 0
-        ''')
+        if DB_TYPE == 'postgresql':
+            cursor.execute('''
+                ALTER TABLE tasks ADD COLUMN is_pinned BOOLEAN DEFAULT FALSE
+            ''')
+        else:
+            cursor.execute('''
+                ALTER TABLE tasks ADD COLUMN is_pinned BOOLEAN DEFAULT 0
+            ''')
         conn.commit()
     
     if 'repeat_pattern' not in columns:
@@ -190,33 +355,62 @@ def migrate_db():
             ALTER TABLE tasks ADD COLUMN completed_at TIMESTAMP
         ''')
         conn.commit()
+        if DB_TYPE == 'postgresql':
+            cursor.execute('''
+                UPDATE tasks
+                SET completed_at = COALESCE(updated_at, created_at)
+                WHERE completed = TRUE AND completed_at IS NULL
+            ''')
+        else:
+            cursor.execute('''
+                UPDATE tasks
+                SET completed_at = COALESCE(updated_at, created_at)
+                WHERE completed = 1 AND completed_at IS NULL
+            ''')
+        conn.commit()
+    
+    if DB_TYPE == 'postgresql':
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS attachments (
+                id SERIAL PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                original_filename TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                mime_type TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+            )
+        ''')
+    else:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                original_filename TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                mime_type TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+            )
+        ''')
+    conn.commit()
+    
+    if DB_TYPE == 'postgresql':
+        cursor.execute('''
+            UPDATE tasks
+            SET completed_at = COALESCE(updated_at, created_at)
+            WHERE completed = TRUE AND completed_at IS NULL
+        ''')
+    else:
         cursor.execute('''
             UPDATE tasks
             SET completed_at = COALESCE(updated_at, created_at)
             WHERE completed = 1 AND completed_at IS NULL
         ''')
-        conn.commit()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS attachments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task_id INTEGER NOT NULL,
-            filename TEXT NOT NULL,
-            original_filename TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            file_size INTEGER NOT NULL,
-            mime_type TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
-        )
-    ''')
-    conn.commit()
-    
-    cursor.execute('''
-        UPDATE tasks
-        SET completed_at = COALESCE(updated_at, created_at)
-        WHERE completed = 1 AND completed_at IS NULL
-    ''')
     conn.commit()
     
     conn.close()
@@ -224,80 +418,156 @@ def migrate_db():
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS categories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            color TEXT NOT NULL DEFAULT '#667eea',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-            UNIQUE(user_id, name)
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            category_id INTEGER,
-            title TEXT NOT NULL,
-            description TEXT,
-            priority TEXT DEFAULT 'medium',
-            due_date TIMESTAMP,
-            completed BOOLEAN DEFAULT 0,
-            is_pinned BOOLEAN DEFAULT 0,
-            repeat_pattern TEXT DEFAULT 'none',
-            repeat_parent_id INTEGER,
-            completed_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-            FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE SET NULL,
-            FOREIGN KEY (repeat_parent_id) REFERENCES tasks (id) ON DELETE SET NULL
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tags (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            color TEXT NOT NULL DEFAULT '#667eea',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-            UNIQUE(user_id, name)
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS task_tags (
-            task_id INTEGER NOT NULL,
-            tag_id INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (task_id, tag_id),
-            FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
-            FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS attachments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task_id INTEGER NOT NULL,
-            filename TEXT NOT NULL,
-            original_filename TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            file_size INTEGER NOT NULL,
-            mime_type TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
-        )
-    ''')
+    if DB_TYPE == 'postgresql':
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS categories (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT '#667eea',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(user_id, name)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                category_id INTEGER,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT DEFAULT 'medium',
+                due_date TIMESTAMP,
+                completed BOOLEAN DEFAULT FALSE,
+                is_pinned BOOLEAN DEFAULT FALSE,
+                repeat_pattern TEXT DEFAULT 'none',
+                repeat_parent_id INTEGER,
+                completed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE SET NULL,
+                FOREIGN KEY (repeat_parent_id) REFERENCES tasks (id) ON DELETE SET NULL
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tags (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT '#667eea',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(user_id, name)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_tags (
+                task_id INTEGER NOT NULL,
+                tag_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (task_id, tag_id),
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+                FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS attachments (
+                id SERIAL PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                original_filename TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                mime_type TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+            )
+        ''')
+    else:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT '#667eea',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(user_id, name)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                category_id INTEGER,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT DEFAULT 'medium',
+                due_date TIMESTAMP,
+                completed BOOLEAN DEFAULT 0,
+                is_pinned BOOLEAN DEFAULT 0,
+                repeat_pattern TEXT DEFAULT 'none',
+                repeat_parent_id INTEGER,
+                completed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE SET NULL,
+                FOREIGN KEY (repeat_parent_id) REFERENCES tasks (id) ON DELETE SET NULL
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT '#667eea',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(user_id, name)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_tags (
+                task_id INTEGER NOT NULL,
+                tag_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (task_id, tag_id),
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+                FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                original_filename TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                mime_type TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+            )
+        ''')
     conn.commit()
     conn.close()
     
@@ -1543,7 +1813,34 @@ def get_stats(current_user_id):
         'daily_trend': daily_trend,
     })
 
+@app.route('/uploads/<path:filename>')
+def serve_upload(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+
+def wait_for_db():
+    if DB_TYPE == 'postgresql':
+        import time
+        max_retries = 30
+        retry_interval = 2
+        for i in range(max_retries):
+            try:
+                conn = get_db()
+                conn.close()
+                print('[db] Database connection successful')
+                return True
+            except Exception as e:
+                print(f'[db] Waiting for database... attempt {i + 1}/{max_retries}')
+                time.sleep(retry_interval)
+        print('[db] Could not connect to database after maximum retries')
+        return False
+    return True
+
+
+wait_for_db()
+init_db()
+start_daily_repeat_scheduler()
+
+
 if __name__ == '__main__':
-    init_db()
-    start_daily_repeat_scheduler()
-    app.run(debug=True, port=5000, use_reloader=False)
+    app.run(debug=True, port=5000, host='0.0.0.0', use_reloader=False)

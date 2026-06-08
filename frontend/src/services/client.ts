@@ -1,6 +1,6 @@
 import type { ApiErrorResponse, RequestConfig } from './types';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '/api';
 
 type RequestInterceptor = (config: RequestConfig) => RequestConfig | Promise<RequestConfig>;
 type ResponseInterceptor = (response: Response) => Response | Promise<Response>;
